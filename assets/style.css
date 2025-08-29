@@ -1,0 +1,61 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Lato, sans-serif;
+}
+
+.header {
+  background-color: #0039a6;
+  height: 6vh;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* center the dropdown H1 */
+}
+
+.header h1 {
+  font-size: 24px;
+  color: white;
+  flex-grow: 1;
+  text-align: center;
+}
+
+/* Dropdown control (the visible part) */
+.dropdown-header .Select-control {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Selected value (the text in header) */
+.dropdown-header .Select-value-label {
+  color: white !important;
+  text-align: center;
+  font-size: 24px;
+}
+
+/* Arrow / caret */
+.dropdown-header .Select-arrow-zone {
+  color: white !important;
+}
+
+/* Dropdown menu (options) */
+.dropdown-header .Select-menu-outer {
+  background-color: #0039a6 !important;
+  border: none !important;
+}
+
+/* Options styling */
+.dropdown-header .Select-option {
+  color: white !important;
+  font-size: 18px;
+  text-align: center;
+}
+
+/* Highlight option on hover/focus */
+.dropdown-header .Select-option.is-focused {
+  background-color: #0050d4 !important;
+}
+
