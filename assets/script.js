@@ -54,23 +54,22 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
-
 window.dash_clientside = Object.assign({}, window.dash_clientside, {
-    clientside: {
-        togglePaginationButtons: function(rowCount) {
-            const prevButton = document.getElementById("prev-page-btn");
-            const nextButton = document.getElementById("next-page-btn");
+  clientside: {
+    togglePaginationButtons: function (rowCount) {
+      const prevButton = document.getElementById("prev-page-btn");
+      const nextButton = document.getElementById("next-page-btn");
 
-            if (rowCount > 8) {
-                prevButton.style.display = "inline-block";
-                nextButton.style.display = "inline-block";
-            } else {
-                prevButton.style.display = "none";
-                nextButton.style.display = "none";
-            }
-            return null; 
-        }
-    }
+      if (rowCount > 8) {
+        prevButton.style.display = "inline-block";
+        nextButton.style.display = "inline-block";
+      } else {
+        prevButton.style.display = "none";
+        nextButton.style.display = "none";
+      }
+      return null;
+    },
+  },
 });
 
 function observeCytoscapeTree() {
@@ -89,7 +88,7 @@ function observeCytoscapeTree() {
     resizeObserver.observe(cyElement);
   } else {
     console.log("Waiting for 'cytoscape-tree' to load...");
-    setTimeout(observeCytoscapeTree, 100); 
+    setTimeout(observeCytoscapeTree, 100);
   }
 }
 
@@ -104,7 +103,7 @@ function initializeResizableDivider() {
   // Check if elements exist
   if (!divider || !leftSection || !rightSection || !container) {
     console.log("Waiting for elements to load...");
-    setTimeout(initializeResizableDivider, 100); 
+    setTimeout(initializeResizableDivider, 100);
     return;
   }
 
@@ -120,7 +119,7 @@ function initializeResizableDivider() {
     if (!isDragging) return;
 
     const containerWidth = container.offsetWidth;
-    const leftWidth = e.clientX; 
+    const leftWidth = e.clientX;
 
     if (leftWidth >= 450 && leftWidth <= containerWidth - 50) {
       leftSection.style.flexBasis = `${leftWidth}px`;
@@ -148,13 +147,13 @@ function initializeTreeTableResizableDivider() {
   }
 
   let isDragging = false;
-  let startX = 0; 
-  let startTreeWidth = 0; 
+  let startX = 0;
+  let startTreeWidth = 0;
 
   divider.addEventListener("mousedown", (e) => {
     isDragging = true;
-    startX = e.clientX; 
-    startTreeWidth = treeSection.getBoundingClientRect().width; 
+    startX = e.clientX;
+    startTreeWidth = treeSection.getBoundingClientRect().width;
     document.body.style.cursor = "ew-resize";
     e.preventDefault();
   });
@@ -162,8 +161,8 @@ function initializeTreeTableResizableDivider() {
   document.addEventListener("mousemove", (e) => {
     if (!isDragging) return;
 
-    const deltaX = e.clientX - startX; 
-    const newTreeWidth = startTreeWidth + deltaX; 
+    const deltaX = e.clientX - startX;
+    const newTreeWidth = startTreeWidth + deltaX;
 
     const containerWidth = container.getBoundingClientRect().width;
 
@@ -183,6 +182,3 @@ document.addEventListener(
   "DOMContentLoaded",
   initializeTreeTableResizableDivider
 );
-
-
-

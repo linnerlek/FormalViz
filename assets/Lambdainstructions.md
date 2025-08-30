@@ -12,7 +12,7 @@ Lambda Engine is an interactive visualizer for **Lambda Calculus expressions**. 
 - Click **"Submit"** to generate the expression tree.
 - You can click **"Reset"** to clear everything and start fresh.
 
-💡 **Tip:** See the "Examples" tab in the sidebar for sample expressions.
+**Tip:** See the "Examples" tab in the sidebar for sample expressions.
 
 
 ### **Step 2: Explore the Expression Tree**
@@ -91,25 +91,7 @@ Use these as a reference to understand common lambda patterns.
 
 ---
 
-## **6. Running the App Locally**
-
-Install dependencies:
-```bash
-pip install dash igraph networkx ply
-```
-Or manually install PLY if needed:
-- https://www.dabeaz.com/ply/ply-3.11.tar.gz
-
-To run the app:
-```bash
-python app.py --hostname localhost --port 8081
-```
-(Default: `localhost:8081`)
-
----
-
-## **7. Contact & Source Code**
+## **6. Contact & Source Code**
 - **Linn Erle Kloefta** – [lklfta1@student.gsu.edu](mailto:lklfta1@student.gsu.edu)
 - **Rajshekhar Sunderraman** – [raj@cs.gsu.edu](mailto:raj@cs.gsu.edu)
-
-GitHub Repository: [Lambda Engine](https://github.com/linnerlek/Lambda-Engine)
+- **Source Code:**  [Lambda Engine](https://github.com/linnerlek/Lambda-Engine)

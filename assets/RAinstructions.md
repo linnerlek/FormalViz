@@ -11,7 +11,7 @@ This tool allows you to **write, visualize, and execute relational algebra queri
 - Once selected, the database name will appear at the top-left panel.
 - The **schema** (list of tables and columns) is displayed on the right.
 
-💡 **Tip:** Ensure your queries match the schema of the selected database.
+**Tip:** Ensure your queries match the schema of the selected database.
 
 ### **Step 2: Enter a Relational Algebra Query**
 - Locate the **query input field** (below the database dropdown).
@@ -19,7 +19,7 @@ This tool allows you to **write, visualize, and execute relational algebra queri
 - Click **"Run Query"** to execute.
 - To **clear the input**, manually delete or modify the previous query.
 
-💡 **Tip:** Use the **Queries Tab** (right panel) to select sample queries and auto-fill them in the input field.
+**Tip:** Use the **Queries Tab** (right panel) to select sample queries and auto-fill them in the input field.
 
 
 ### **Step 3: Viewing and Interacting with the Visualization**
@@ -45,7 +45,7 @@ The **Queries Tab** (right panel) contains sample queries for common relational 
 2. The query will automatically **populate the input field**.
 3. Click **"Run Query"** to execute.
 
-💡 **Tip:** Use these as a reference for writing your own queries.
+**Tip:** Use these as a reference for writing your own queries.
 
 ---
 
@@ -95,8 +95,6 @@ This tool supports the following relational algebra operations:
 ---
 
 ## **5. Contact & Source Code**
-- **For support or questions:**  
-  - **Linn Erle Kloefta** – [lklfta1@student.gsu.edu](mailto:lklfta1@student.gsu.edu)
-  - **Rajshekhar Sunderraman** - [raj@cs.gsu.edu](mailto:raj@cs.gsu.edu)
-- **Source Code:**  
-  Available on [GitHub](https://github.com/linnerlek/RA-Viz)
+- **Linn Erle Kloefta** – [lklfta1@student.gsu.edu](mailto:lklfta1@student.gsu.edu)
+- **Rajshekhar Sunderraman** - [raj@cs.gsu.edu](mailto:raj@cs.gsu.edu)
+- **Source Code:** [RA-Viz](https://github.com/linnerlek/RA-Viz)

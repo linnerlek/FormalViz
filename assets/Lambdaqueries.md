@@ -47,5 +47,3 @@ This panel contains a set of example lambda expressions you can click to auto-fi
 - **Click any expression above** to insert it into the text box
 - Then press **Submit** to generate its expression tree
 - Explore the tree by clicking on green `apply` nodes or arithmetic operators to reduce step by step
-
-💡 Try combining your own lambda expressions with arithmetic to create custom examples!
