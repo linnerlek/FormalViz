@@ -302,11 +302,15 @@ html {
   font-size: 16px;
   color: #0039a6;
   text-decoration: none;
-  padding: 5px;
+  padding: 2px;
+  background-color: white;
+  border: 0;
 }
 
 #installation-info-link:hover,
-#open-query-modal-btn:hover {
+#open-query-modal-btn:hover,
+#open-docs:hover,
+#open-queries:hover {
   text-decoration: underline;
   cursor: pointer;
 }
