@@ -59,4 +59,12 @@ def sync_dropdown(drop_value, pathname):
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    parser = ArgumentParser(
+        prog='Multi-Engine Dashboard',
+        description='Dashboard supporting RAP and Lambda engines'
+    )
+    parser.add_argument('--hostname', default='localhost')
+    parser.add_argument('--port', default='8050')
+    args = parser.parse_args()
+
+    app.run(debug=False, host=args.hostname, port=int(args.port))
