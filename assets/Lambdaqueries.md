@@ -1,4 +1,4 @@
-# **Lambda Engine – Examples**
+# **Lambda Calculus Examples**
 
 This panel contains a set of example lambda expressions you can click to auto-fill the input field. Try them out to see how beta-reduction and evaluation works!
 

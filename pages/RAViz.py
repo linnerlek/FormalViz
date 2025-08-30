@@ -260,7 +260,7 @@ layout = html.Div([
             html.Div(id="documentation-placeholder", children=[
                     html.Button("Documentation",
                                 id="installation-info-link", n_clicks=0, className="modal-trigger"),
-                    html.Button("Queries",
+                    html.Button("Examples",
                                 id="open-query-modal-btn", n_clicks=0, className="modal-trigger"),
 
             ]),

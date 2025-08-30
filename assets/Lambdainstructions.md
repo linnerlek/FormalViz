@@ -1,4 +1,4 @@
-# **Lambda Engine – User Guide**
+# **Lambda Calculus – User Guide**
 
 Lambda Engine is an interactive visualizer for **Lambda Calculus expressions**. It helps you explore the evaluation process step-by-step by displaying expression trees and letting you apply beta-reductions and arithmetic operations visually.
 

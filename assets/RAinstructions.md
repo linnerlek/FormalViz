@@ -1,4 +1,4 @@
-# **Relational Algebra Visualizer – User Guide**
+# **Relational Algebra – User Guide**
 
 This tool allows you to **write, visualize, and execute relational algebra queries** interactively. It helps students and database learners understand query execution by displaying expression trees and sub-query results.
 

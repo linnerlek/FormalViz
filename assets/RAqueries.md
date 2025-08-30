@@ -1,4 +1,4 @@
-# Queries
+# Relational Algebra Examples
 ## Navigation
 - [Company.db](#companydb)
 - [Baseball.db](#baseballdb)
