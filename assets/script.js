@@ -1,3 +1,47 @@
+// Lambda resizable divider
+function initializeLambdaResizableDivider() {
+  const divider = document.getElementById("divider");
+  const leftSection = document.querySelector(".lambda-left-section");
+  const rightSection = document.querySelector(".lambda-right-section");
+  const container = document.getElementById("app-container");
+
+  // Only run if all elements exist and are visible
+  if (!divider || !leftSection || !rightSection || !container) {
+    setTimeout(initializeLambdaResizableDivider, 100);
+    return;
+  }
+
+  // Prevent double-binding if both RAViz and Lambda are present
+  if (divider.hasAttribute("data-lambda-resize")) return;
+  divider.setAttribute("data-lambda-resize", "true");
+
+  let isDragging = false;
+
+  divider.addEventListener("mousedown", (e) => {
+    // Only activate if lambda sections are present
+    if (!leftSection || !rightSection) return;
+    isDragging = true;
+    document.body.style.cursor = "ew-resize";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const containerWidth = container.offsetWidth;
+    const leftWidth = e.clientX - container.getBoundingClientRect().left;
+    if (leftWidth >= 300 && leftWidth <= containerWidth - 100) {
+      leftSection.style.flexBasis = `${leftWidth}px`;
+      rightSection.style.flexBasis = `${containerWidth - leftWidth}px`;
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    isDragging = false;
+    document.body.style.cursor = "default";
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initializeLambdaResizableDivider);
 document.addEventListener("DOMContentLoaded", function () {
   const schemaContainer = document.getElementById("schema-container");
 
