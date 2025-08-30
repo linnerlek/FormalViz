@@ -1,12 +1,24 @@
 import dash
 from dash import Dash, html, dcc, Input, Output
+import os
 
-app = Dash(__name__, use_pages=True)
+# --- Asset folders for each engine ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RAP_ASSETS = os.path.join(BASE_DIR, "RAP", "assets")
+LAMBDA_ASSETS = os.path.join(BASE_DIR, "Lambda", "assets")
+
+
+app = Dash(
+    __name__,
+    use_pages=True 
+)
+
 
 page_options = [
     {"label": p["name"], "value": p["relative_path"]}
     for p in sorted(dash.page_registry.values(), key=lambda x: x["name"])
 ]
+
 
 app.layout = html.Div([
     dcc.Location(id="url"),
@@ -25,7 +37,6 @@ app.layout = html.Div([
 
     dash.page_container
 ])
-
 
 
 
@@ -48,4 +59,4 @@ def sync_dropdown(drop_value, pathname):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
