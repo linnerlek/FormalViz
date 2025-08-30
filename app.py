@@ -1,6 +1,7 @@
 import dash
 from dash import Dash, html, dcc, Input, Output
 import os
+from argparse import ArgumentParser
 
 # --- Asset folders for each engine ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
