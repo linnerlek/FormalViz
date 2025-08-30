@@ -18,7 +18,7 @@ layout = html.Div([
             html.Div([
                 html.H3("Lambda Calculus Visualizer", className="tool-title"),
                 html.Img(
-                    src="LambdaDemo.gif",
+                    src="/assets/LambdaDemo.gif",
                     alt="Lambda Calculus Visualizer demo",
                     className="tool-gif"
                 ),
@@ -32,7 +32,7 @@ layout = html.Div([
                 html.H3("Relational Algebra Visualizer",
                         className="tool-title"),
                 html.Img(
-                    src="RADemo.gif",
+                    src="/assets/RADemo.gif",
                     alt="Relational Algebra Visualizer demo",
                     className="tool-gif"
                 ),
