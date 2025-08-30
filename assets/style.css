@@ -114,11 +114,11 @@ html {
 /*
   ************** LEFT SECTION **************
 */
-.left-section {
+.left-section, .lambda-left-section {
   flex: 8;
   display: flex;
   flex-direction: column;
-  padding-right: 10px;
+  padding: 10px;
   height: 100%;
   overflow: hidden;
 }
@@ -135,7 +135,6 @@ html {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
-  padding-top: 10px;
 }
 
 #db-name-header {
@@ -272,7 +271,7 @@ html {
   width: 3px;
 }
 
-.right-section {
+.right-section, .lambda-right-section {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -282,7 +281,7 @@ html {
   border: none;
 }
 
-.right-section div {
+.right-section div, .lambda-right-section div {
   margin-bottom: 10px;
   overflow-y: auto;
 }
@@ -297,7 +296,9 @@ html {
 }
 
 #installation-info-link,
-#open-query-modal-btn {
+#open-query-modal-btn,
+#open-docs,
+#open-queries {
   font-size: 16px;
   color: #0039a6;
   text-decoration: none;
@@ -531,14 +532,6 @@ details summary {
     overflow: hidden;
   }
   
-  .lambda-left-section {
-    flex: 12;
-    display: flex;
-    flex-direction: column;
-    padding: 10px;
-    height: 100%;
-    overflow: hidden;
-  }
   
   .lambda-input-pcontainer {
     display: flex;
@@ -584,17 +577,7 @@ details summary {
     width: 2px;
     background-color: #0039a6;
   }
-  
-  .lambda-right-section {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: start;
-    padding: 10px;
-    height: 100%;
-    overflow-y: auto;
-    background-color: #f8f8f8;
-  }
+
   
   #documentation-placeholder {
     padding-top: 15px;
@@ -614,5 +597,5 @@ details summary {
     cursor: pointer;
   }
   
-  /* Markdown modal handled in modal.css */
+
   
