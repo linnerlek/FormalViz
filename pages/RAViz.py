@@ -23,7 +23,6 @@ ASSETS_PATH = os.path.join(BASE_DIR, '..', 'assets')
 DB_FOLDER = os.path.join(BASE_DIR, '..', 'databases')
 
 
-
 def get_readme_content():
     readme_path = os.path.join(ASSETS_PATH, 'RAinstructions.md')
     with open(readme_path, 'r') as file:
@@ -205,11 +204,11 @@ cytoscape_stylesheet = [
 
 
 layout = html.Div([
-        html.Div(id='page-content'),
-        dcc.Store(id='code-click', data=None),
-        dcc.Store(id="reset-tap-data", data=0),
-        html.Div(id="app-container", children=[
-            html.Div(id="left-section", className="left-section", children=[
+    html.Div(id='page-content'),
+    dcc.Store(id='code-click', data=None),
+    dcc.Store(id="reset-tap-data", data=0),
+    html.Div(id="app-container", children=[
+        html.Div(id="left-section", className="left-section", children=[
                 html.Div(className="input-container", children=[
                     html.Div(className="header-dropdown-container", children=[
                         html.H3(id="db-name-header"),
@@ -221,76 +220,76 @@ layout = html.Div([
                     html.Button("Submit", id="submit-btn"),
                 ]),
 
-                dcc.Store(id='tree-store'),
-                dcc.Store(id='db-path-store'),
-                dcc.Store(id="current-page", data=0),
-                dcc.Store(id="prev-clicks", data=0),
-                dcc.Store(id="next-clicks", data=0),
-                dcc.Store(id="row-count", data=0),
+            dcc.Store(id='tree-store'),
+            dcc.Store(id='db-path-store'),
+            dcc.Store(id="current-page", data=0),
+            dcc.Store(id="prev-clicks", data=0),
+            dcc.Store(id="next-clicks", data=0),
+            dcc.Store(id="row-count", data=0),
 
 
-                html.Div(className="tree-table-container", children=[
-                    cyto.Cytoscape(
-                        id='cytoscape-tree',
-                        layout={'name': 'preset'},
-                        elements=[],
-                        stylesheet=cytoscape_stylesheet
-                    ),
-                    html.Div(id="tree-table-divider", className="divider"),
-                    html.Div(
-                        className="table-and-pagination",
-                        children=[
-                            html.Div(id="node-table-placeholder",
-                                     children="Click node to see info"),
-                            html.Div(
-                                [
-                                    html.Button(
-                                        "Previous", id="prev-page-btn", n_clicks=0),
-                                    html.Button(
-                                        "Next", id="next-page-btn", n_clicks=0)
-                                ],
-                                className="pagination-buttons"
-                            ),
-                        ],
-                    ),
-                ]),
+            html.Div(className="tree-table-container", children=[
+                cyto.Cytoscape(
+                    id='cytoscape-tree',
+                    layout={'name': 'preset'},
+                    elements=[],
+                    stylesheet=cytoscape_stylesheet
+                ),
+                html.Div(id="tree-table-divider", className="divider"),
+                html.Div(
+                    className="table-and-pagination",
+                    children=[
+                        html.Div(id="node-table-placeholder",
+                                 children="Click node to see info"),
+                        html.Div(
+                            [
+                                html.Button(
+                                    "Previous", id="prev-page-btn", n_clicks=0),
+                                html.Button(
+                                    "Next", id="next-page-btn", n_clicks=0)
+                            ],
+                            className="pagination-buttons"
+                        ),
+                    ],
+                ),
             ]),
-            html.Div(id="divider", className="divider"),
+        ]),
+        html.Div(id="divider", className="divider"),
 
-            html.Div(id="right-section", className="right-section", children=[
-                html.Div(id="documentation-placeholder", children=[
-                    html.A("Documentation",
-                           id="installation-info-link", href="#"),
-                    html.A("Queries",
-                           id="open-query-modal-btn", href="#"),
+        html.Div(id="right-section", className="right-section", children=[
+            html.Div(id="documentation-placeholder", children=[
+                    html.Button("Documentation",
+                                id="installation-info-link", n_clicks=0, className="modal-trigger"),
+                    html.Button("Queries",
+                                id="open-query-modal-btn", n_clicks=0, className="modal-trigger"),
 
-                ]),
-                html.Details(id="schema-container", open=True, children=[
-                    html.Summary("Schema Information"),
-                    html.Div(id="schema-info",
-                             children="Schema Info Placeholder")
-                ])
             ]),
-            html.Div(id="modal", className="modal", style={"display": "none"}, children=[
-                html.Div(className="modal-content", children=[
+            html.Details(id="schema-container", open=True, children=[
+                html.Summary("Schema Information"),
+                html.Div(id="schema-info",
+                         children="Schema Info Placeholder")
+            ])
+        ]),
+        html.Div(id="modal", className="modal", style={"display": "none"}, children=[
+            html.Div(className="modal-content", children=[
                     html.Div(id="button-container", children=[
                         html.Button("Close", id="close-modal-btn")
                     ]),
-                    html.Div(id="modal-body", className="markdown-content"),
-                ])
-            ]),
-            html.Div(id="query-modal", className="modal", style={"display": "none"}, children=[
-                html.Div(className="modal-content", children=[
+                html.Div(id="modal-body", className="markdown-content"),
+            ])
+        ]),
+        html.Div(id="query-modal", className="modal", style={"display": "none"}, children=[
+            html.Div(className="modal-content", children=[
                     html.Div(id="query-button-container", children=[
                         html.Button("Close", id="close-query-modal-btn")
                     ]),
-                    html.Div(id="query-modal-body",
-                             className="markdown-content"),
-                ]),
+                html.Div(id="query-modal-body",
+                         className="markdown-content"),
             ]),
         ]),
-        html.Div(id='error-div')
-    ])
+    ]),
+    html.Div(id='error-div')
+])
 
 
 # ------------------ Callbacks ------------------

@@ -135,8 +135,10 @@ layout = html.Div([
         html.Div(className="divider", id="divider"),
         html.Div(className="lambda-right-section", children=[
             html.Div(id="documentation-placeholder", children=[
-                html.A("Documentation", id="open-docs", href="#"),
-                html.A("Examples", id="open-queries", href="#")
+                html.Button("Documentation", id="open-docs",
+                            n_clicks=0, className="modal-trigger"),
+                html.Button("Examples", id="open-queries",
+                            n_clicks=0, className="modal-trigger")
             ]),
         ])
     ]),
