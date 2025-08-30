@@ -4,12 +4,11 @@ import sqlite3
 import ply.yacc as yacc
 import ply.lex as lex
 
-# --- RAPParser class encapsulating the parser and lexer ---
+# RAPParser class encapsulating the parser and lexer to avoid issues with other parsers
 
 
 class RAPParser:
 
-    # Class-level tokens for PLY
     reserved = {
         'project': 'PROJECT', 'rename': 'RENAME', 'union': 'UNION', 'intersect': 'INTERSECT',
         'minus': 'MINUS', 'join': 'JOIN', 'times': 'TIMES', 'select': 'SELECT', 'and': 'AND',
@@ -26,7 +25,6 @@ class RAPParser:
         self.parser = yacc.yacc(
             module=self, start='query', debug=False, write_tables=False)
 
-    # --- Lexer rules ---
     t_SEMI = r';'
     t_AND = r'[Aa][Nn][Dd]'
     t_LPARENT = r'\('
@@ -76,7 +74,6 @@ class RAPParser:
         print("Illegal Character '%s'" % t.value[0])
         t.lexer.skip(1)
 
-    # --- Grammar rules ---
     precedence = (
         ('right', 'UNION', 'MINUS', 'INTERSECT'),
         ('right', 'TIMES', 'JOIN'),
@@ -261,8 +258,6 @@ class RAPParser:
     # --- Public method to parse input ---
     def parse(self, data):
         return self.parser.parse(data, lexer=self.lexer)
-
-
 
 
 # data = '''project[dname](
