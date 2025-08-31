@@ -103,7 +103,9 @@ html {
   z-index: 1000;
 }
 #close-modal-btn,
-#close-query-modal-btn {
+#close-query-modal-btn,
+#datalog-close-docs-btn,
+#datalog-close-queries-btn {
   background-color: #0039a6;
   color: white;
   border: none;
@@ -113,7 +115,9 @@ html {
   font-size: 14px;
 }
 #close-modal-btn:hover,
-#close-query-modal-btn:hover {
+#close-query-modal-btn:hover,
+#datalog-close-docs-btn:hover,
+#datalog-close-queries-btn:hover {
   background-color: #082d70;
 }
 
@@ -250,7 +254,9 @@ html {
 #installation-info-link,
 #open-query-modal-btn,
 #open-docs,
-#open-queries {
+#open-queries,
+#datalog-open-queries,
+#datalog-open-docs {
   font-size: 16px;
   color: #0039a6;
   text-decoration: none;
@@ -261,7 +267,9 @@ html {
 #installation-info-link:hover,
 #open-query-modal-btn:hover,
 #open-docs:hover,
-#open-queries:hover {
+#open-queries:hover,
+#datalog-open-queries:hover,
+#datalog-open-docs:hover {
   text-decoration: underline;
   cursor: pointer;
 }
@@ -364,7 +372,8 @@ html {
   text-align: left;
   font-size: 17px;
 }
-#db-dropdown {
+#db-dropdown,
+#datalog-db-dropdown {
   width: 200px;
 }
 .Select--single > .Select-control .Select-value,
@@ -378,7 +387,8 @@ html {
   font-size: 16px;
   border: 1px solid #cccccc;
 }
-#submit-btn {
+#submit-btn,
+#datalog-submit {
   width: 100%;
   padding: 5px;
   font-size: 16px;
@@ -386,7 +396,8 @@ html {
   background-color: #0071ce;
   border: 0;
 }
-#submit-btn:hover {
+#submit-btn:hover,
+#datalog-submit:hover {
   cursor: pointer;
   background-color: #05508d;
 }
@@ -532,4 +543,66 @@ details summary {
   color: white;
   font-size: 24px;
   margin: 0 auto;
+}
+
+/* =================== DATALOG PAGE =================== */
+/* Use same structure as RAViz with consistent styling */
+.text-area-input {
+  resize: none;
+  width: 100%;
+  height: 100px;
+  font-size: 16px;
+  border: 1px solid #cccccc;
+  padding: 5px;
+  margin-bottom: 10px;
+}
+
+/* Container for buttons to display them inline */
+.control-section {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.control-section .button {
+  display: inline-block;
+}
+
+/* Datalog Cytoscape Styling */
+#datalog-graph {
+  flex: 1;
+  height: 100% !important;
+  width: 100% !important;
+  border: 1px solid #ccc;
+}
+
+/* Node types styling for Datalog visualization */
+.answer-node {
+  background-color: #e74c3c !important;
+  border-width: 3px !important;
+  border-color: #922b21 !important;
+  shape: round-rectangle !important;
+  font-weight: bold !important;
+  font-size: 14px !important;
+}
+
+.idb-node {
+  background-color: #6fb1fc !important;
+  border-width: 2px !important;
+  border-color: #0066cc !important;
+  shape: round-rectangle !important;
+}
+
+.edb-node {
+  background-color: #86b342 !important;
+  border-width: 2px !important;
+  border-color: #476e23 !important;
+  shape: round-rectangle !important;
+}
+
+.comparison-node {
+  background-color: #f5a45d !important;
+  border-width: 2px !important;
+  border-color: #c66e13 !important;
+  shape: diamond !important;
 }
