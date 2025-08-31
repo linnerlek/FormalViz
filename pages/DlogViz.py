@@ -56,7 +56,10 @@ dlog_cytoscape_stylesheet = [
             'text-margin-y': 10,
             'text-justification': 'center',
             'min-height': 60,
-            'background-color': '#0071CE'
+            'background-color': '#0071CE',
+            'text-outline-width': 2,
+            'text-outline-color': '#FFFFFF',
+            'text-outline-opacity': 1
         }
     },
     {
@@ -104,10 +107,14 @@ dlog_cytoscape_stylesheet = [
         'style': {
             'width': 3,
             'line-color': '#778899',
-            'curve-style': 'bezier',
+            'curve-style': 'unbundled-bezier',
+            'control-point-distances': 120,
+            'control-point-weights': 0.7,
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#778899',
-            'arrow-scale': 1.5
+            'arrow-scale': 1.5,
+            'control-point-step-size': 60,
+            'edge-text-rotation': 'autorotate'
         }
     },
     {
@@ -152,7 +159,14 @@ layout = html.Div([
             html.Div(className="tree-table-container", children=[
                 cyto.Cytoscape(
                     id='datalog-graph',
-                    layout={'name': 'preset'},
+                    layout={
+                        'name': 'dagre',
+                        'rankDir': 'TB',  # Top to bottom layout
+                        'nodeSep': 100,   # Minimum distance between nodes in the same rank
+                        'rankSep': 150,   # Minimum distance between ranks
+                        'edgeSep': 80,    # Minimum distance between edges
+                        'ranker': 'tight-tree'  # Algorithm for rank assignment
+                    },
                     elements=[],
                     stylesheet=dlog_cytoscape_stylesheet,
                     userZoomingEnabled=True,
@@ -487,11 +501,6 @@ def extract_comparison_conditions(rules):
 def build_datalog_graph(pred_dict, dgraph, rules=None):
     elements = []
 
-    # Track node positions
-    node_positions = {}
-    x_offset = 220  # Increased horizontal spacing
-    y_offset = 150  # Vertical spacing between levels
-
     # Extract comparison conditions if rules are provided
     comparison_conditions = {}
     pred_contents = {}  # Track values used in predicates
@@ -526,7 +535,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                         if content not in pred_contents[pred_name]:
                             pred_contents[pred_name].append(content)
 
-    # Step 1: Calculate dependency levels for each predicate
     # Create a reverse dependency graph (who depends on me)
     reverse_deps = {}
     for pred in pred_dict:
@@ -550,124 +558,116 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     # Identify the answer predicate
     answer_pred = next((p for p in pred_dict if p.lower() == 'answer'), None)
 
-    # Calculate levels (0 = bottom, higher = closer to answer)
-    pred_levels = {}
-    level_map = {}  # Map from level to list of predicates
+    # Add all predicates as nodes
+    # First, add the answer node with special styling if it exists
+    if answer_pred:
+        label = answer_pred
+        if answer_pred in pred_contents and pred_contents[answer_pred]:
+            label += f"\n({', '.join(pred_contents[answer_pred])})"
+        if answer_pred in comparison_conditions and comparison_conditions[answer_pred]:
+            label += "\n" + "\n".join(comparison_conditions[answer_pred])
 
-    def assign_level(pred, level):
-        # If already assigned to a higher or equal level, keep that
-        if pred in pred_levels and pred_levels[pred] >= level:
-            return
-
-        pred_levels[pred] = level
-        if level not in level_map:
-            level_map[level] = []
-        level_map[level].append(pred)
-
-        # Process predicates that depend on this one
-        for dep in reverse_deps.get(pred, []):
-            assign_level(dep, level + 1)
-
-    # Start by setting all EDB predicates to level 0
-    for edb in edb_preds:
-        assign_level(edb, 0)
-
-    # Process any IDB predicates not yet assigned
+        elements.append({
+            'data': {
+                'id': f"node_{answer_pred}",
+                'label': label,
+                'type': 'idb',
+                'arity': len(pred_dict[answer_pred][0]),
+                'conditions': comparison_conditions.get(answer_pred, []),
+                'contents': pred_contents.get(answer_pred, [])
+            },
+            'classes': 'answer-node'
+        })
+    
+    # Add all IDB predicates (except answer which is already added)
     for pred in pred_dict:
-        if pred not in pred_levels:
-            # Find base level based on its dependencies
-            base_level = 0
-            for dep in dgraph.get(pred, []):
-                if dep in pred_levels:
-                    base_level = max(base_level, pred_levels[dep] + 1)
-            assign_level(pred, base_level)
-
-    # Step 2: Position nodes by level
-    max_level = max(pred_levels.values()) if pred_levels else 0
-
-    # Adjust levels if answer is not at top
-    if answer_pred and pred_levels[answer_pred] != max_level:
-        # Move answer to top level
-        old_level = pred_levels[answer_pred]
-        level_map[old_level].remove(answer_pred)
-        level_map[max_level + 1] = [answer_pred]
-        pred_levels[answer_pred] = max_level + 1
-        max_level += 1
-
-    # For each level, position predicates
-    for level in range(max_level + 1):
-        if level not in level_map:
+        if pred == answer_pred:  # Skip answer, already added
             continue
+            
+        label = pred
+        if pred in pred_contents and pred_contents[pred]:
+            label += f"\n({', '.join(pred_contents[pred])})"
+        # We no longer add comparison conditions to the node label since they are separate nodes
 
-        preds = level_map[level]
-        level_y = (max_level - level) * y_offset  # Top-down layout
+        elements.append({
+            'data': {
+                'id': f"node_{pred}",
+                'label': label,
+                'type': 'idb',
+                'arity': len(pred_dict[pred][0]),
+                'conditions': comparison_conditions.get(pred, []),
+                'contents': pred_contents.get(pred, [])
+            },
+            'classes': 'idb-node'
+        })
+    
+    # Add all EDB predicates
+    for pred in edb_preds:
+        label = pred
+        if pred in pred_contents and pred_contents[pred]:
+            label += f"\n({', '.join(pred_contents[pred])})"
+        # We no longer add comparison conditions to the node label since they are separate nodes
 
-        # Special case for answer at top level
-        if level == max_level and answer_pred in preds:
-            center_x = (len(preds) - 1) * x_offset / 2
-            node_positions[answer_pred] = (center_x, level_y)
-
-            # Create the node
-            label = answer_pred
-            if answer_pred in pred_contents and pred_contents[answer_pred]:
-                label += f"\n({', '.join(pred_contents[answer_pred])})"
-            if answer_pred in comparison_conditions and comparison_conditions[answer_pred]:
-                label += "\n" + "\n".join(comparison_conditions[answer_pred])
-
+        elements.append({
+            'data': {
+                'id': f"node_{pred}",
+                'label': label,
+                'type': 'edb',
+                'conditions': comparison_conditions.get(pred, []),
+                'contents': pred_contents.get(pred, [])
+            },
+            'classes': 'edb-node'
+        })
+    
+    # Add edges based on dependency graph
+    edge_id = 0
+    for head in dgraph:
+        for body in dgraph[head]:
+            edge_id += 1
+            # Reverse the direction: head depends on body, so arrow should point from head to body
             elements.append({
                 'data': {
-                    'id': f"node_{answer_pred}",
-                    'label': label,
-                    'type': 'idb',
-                    'arity': len(pred_dict[answer_pred][0]),
-                    'conditions': comparison_conditions.get(answer_pred, []),
-                    'contents': pred_contents.get(answer_pred, [])
-                },
-                'position': {'x': center_x, 'y': level_y},
-                'classes': 'answer-node'
+                    'id': f"edge_{edge_id}",
+                    'source': f"node_{head}",  # Changed from body to head
+                    'target': f"node_{body}"   # Changed from head to body
+                }
             })
-
-            # Remove from the list so it's not processed again
-            preds = [p for p in preds if p != answer_pred]
-
-        # Position the remaining predicates on this level
-        preds_count = len(preds)
-        if preds_count > 0:
-            # Calculate total width needed
-            total_width = (preds_count - 1) * x_offset
-
-            # Start position (centered)
-            start_x = -total_width / 2
-
-            # Place each predicate
-            for i, pred in enumerate(preds):
-                pred_x = start_x + i * x_offset
-                node_positions[pred] = (pred_x, level_y)
-
-                # Build the label
-                label = pred
-                if pred in pred_contents and pred_contents[pred]:
-                    label += f"\n({', '.join(pred_contents[pred])})"
-                if pred in comparison_conditions and comparison_conditions[pred]:
-                    label += "\n" + "\n".join(comparison_conditions[pred])
-
-                # Determine node class
-                node_class = 'edb-node' if pred in edb_preds else 'idb-node'
-                node_type = 'edb' if pred in edb_preds else 'idb'
-
-                # Add the node
+    
+    # Add any comparison nodes and connect them - create unique comparison nodes
+    created_comparisons = {}  # Track already created comparison nodes
+    
+    for pred_name, conditions in comparison_conditions.items():
+        if not conditions:
+            continue
+            
+        for condition in conditions:
+            # Use the condition itself as the ID to prevent duplicates
+            comp_key = condition.replace(" ", "_")
+            
+            # Create the node only if it doesn't exist yet
+            if comp_key not in created_comparisons:
+                comp_id = f"comp_{comp_key}"
                 elements.append({
                     'data': {
-                        'id': f"node_{pred}",
-                        'label': label,
-                        'type': node_type,
-                        'arity': len(pred_dict[pred][0]) if pred in pred_dict else 0,
-                        'conditions': comparison_conditions.get(pred, []),
-                        'contents': pred_contents.get(pred, [])
+                        'id': f"node_{comp_id}",
+                        'label': condition,
+                        'type': 'comparison'
                     },
-                    'position': {'x': pred_x, 'y': level_y},
-                    'classes': node_class
+                    'classes': 'comparison-node'
                 })
+                created_comparisons[comp_key] = comp_id
+            else:
+                comp_id = created_comparisons[comp_key]
+            
+            # Add edge from predicate to comparison (predicate depends on comparison)
+            edge_id += 1
+            elements.append({
+                'data': {
+                    'id': f"edge_{edge_id}",
+                    'source': f"node_{pred_name}",
+                    'target': f"node_{comp_id}"
+                }
+            })
 
     # Add edges from head predicates to body predicates (top-down direction)
     for head_pred in dgraph:
