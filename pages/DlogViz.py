@@ -1,3 +1,5 @@
+import sqlite3
+from DLOG.DLOG import generate_sql
 import os
 import re
 import dash
@@ -30,13 +32,11 @@ DB_FOLDER = os.path.join(BASE_DIR, '..', 'databases')
 
 
 def get_db_files():
-    db_files = [f for f in os.listdir(DB_FOLDER) if f.endswith('.db')]
-    return [{'label': f, 'value': f} for f in db_files]
+    return [{'label': f, 'value': f} for f in os.listdir(DB_FOLDER) if f.endswith('.db')]
 
 
 def get_md_file_content(filename):
-    markdown_path = os.path.join(ASSETS_PATH)
-    with open(f'{markdown_path}/{filename}', 'r', encoding='utf-8') as file:
+    with open(os.path.join(ASSETS_PATH, filename), 'r', encoding='utf-8') as file:
         return file.read()
 
 
@@ -107,13 +107,10 @@ dlog_cytoscape_stylesheet = [
         'style': {
             'width': 3,
             'line-color': '#778899',
-            'curve-style': 'unbundled-bezier',
-            'control-point-distances': 120,
-            'control-point-weights': 0.7,
+            'curve-style': 'straight',
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#778899',
             'arrow-scale': 1.5,
-            'control-point-step-size': 60,
             'edge-text-rotation': 'autorotate'
         }
     },
@@ -160,12 +157,11 @@ layout = html.Div([
                 cyto.Cytoscape(
                     id='datalog-graph',
                     layout={
-                        'name': 'dagre',
-                        'rankDir': 'TB',  # Top to bottom layout
-                        'nodeSep': 100,   # Minimum distance between nodes in the same rank
-                        'rankSep': 150,   # Minimum distance between ranks
-                        'edgeSep': 80,    # Minimum distance between edges
-                        'ranker': 'tight-tree'  # Algorithm for rank assignment
+                        'name': 'breadthfirst',
+                        'directed': True,
+                        'roots': '[id = "node_answer"]',
+                        'spacingFactor': 1.5,
+                        'animate': False
                     },
                     elements=[],
                     stylesheet=dlog_cytoscape_stylesheet,
@@ -174,7 +170,8 @@ layout = html.Div([
                     minZoom=0.5,
                     maxZoom=2.0
                 ),
-                html.P(id='datalog-output', className="string-output")
+                html.Div(id='datalog-results-panel', className="results-panel",
+                         children="Click a node to see data.")
             ]),
         ]),
         html.Div(id="divider", className="divider"),
@@ -218,6 +215,103 @@ layout = html.Div([
     ]),
     html.Div(id='datalog-error-div')
 ])
+# --- Results Panel Callback ---
+
+
+# --- Results Panel Callback (now below the graph) ---
+
+
+@callback(
+    Output('datalog-results-panel', 'children'),
+    [Input('datalog-graph', 'tapNodeData')],
+    [State('datalog-parsed-data', 'data'),
+     State('datalog-db-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def show_node_data(node_data, parsed_data, db_file):
+    if not node_data or not parsed_data or not db_file:
+        return "Click a node to see data."
+    pred_name = node_data['label'].split('\n')[0]
+    pred_dict = parsed_data['pred_dict']
+    # If this is a comparison node, just explain it
+    if node_data.get('type') == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
+        return html.Div([
+            html.P("This is a comparison/condition node. It does not produce data directly, but applies a condition to its connected predicates.",
+                   style={"fontStyle": "italic"}),
+            html.P(f"Condition: {node_data['label']}")
+        ])
+    try:
+        db_path = os.path.join(DB_FOLDER, db_file)
+        from DLOG.SQLite3 import SQLite3
+        db = SQLite3()
+        db.open(db_path)
+        sql = None
+        # Check if EDB node (not in pred_dict)
+        if pred_name not in pred_dict:
+            col_names = db.getAttributes(pred_name)
+            filter_clauses = []
+            # Map variable name to column name for this predicate
+            var_to_col = {f"{v[1]}": col_names[i]
+                          for i, v in enumerate(db.getAttributes(pred_name))}
+            # Go through all rules and collect relevant filters
+            for rule in parsed_data['rules']:
+                head, body = rule
+                for lit in body:
+                    if lit[1][0] == 'regular' and lit[1][1] == pred_name:
+                        # Constants in EDB predicate
+                        for idx, arg in enumerate(lit[1][2]):
+                            if arg[0] in ('num', 'str'):
+                                filter_clauses.append(
+                                    f"{col_names[idx]} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
+                        # Map variables in this literal to columns
+                        var_map = {}
+                        for idx, arg in enumerate(lit[1][2]):
+                            if arg[0] == 'var' and arg[1]:
+                                var_map[arg[1]] = col_names[idx]
+                        # Now look for comparisons in the same body that use these variables
+                        for comp_lit in body:
+                            if comp_lit[1][0] == 'comparison':
+                                left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
+                                # If left or right is a var in this EDB literal, add comparison
+                                comp = None
+                                if left[0] == 'var' and left[1] in var_map:
+                                    col = var_map[left[1]]
+                                    val = right[1] if right[0] == 'num' else (
+                                        f"'{right[1]}'" if right[0] == 'str' else right[1])
+                                    comp = f"{col} {op} {val}"
+                                elif right[0] == 'var' and right[1] in var_map:
+                                    col = var_map[right[1]]
+                                    val = left[1] if left[0] == 'num' else (
+                                        f"'{left[1]}'" if left[0] == 'str' else left[1])
+                                    comp = f"{val} {op} {col}"
+                                if comp:
+                                    filter_clauses.append(comp)
+            where_sql = f" WHERE {' AND '.join(filter_clauses)}" if filter_clauses else ''
+            sql = f"SELECT {', '.join(col_names)} FROM {pred_name}{where_sql}"
+        else:
+            sql = generate_sql(pred_name, pred_dict, db=db)
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        col_names = [desc[0] for desc in cur.description]
+        conn.close()
+        if not rows:
+            return html.Div([html.P("No data found for this node.")])
+        table_header = [html.Th(col) for col in col_names]
+        table_body = [html.Tr([html.Td(cell) for cell in row]) for row in rows]
+        return html.Div([
+            html.P(f"Number of tuples: {len(rows)}", className="tuple-count"),
+            html.Table(
+                className='classic-table',
+                children=[
+                    html.Thead(html.Tr(table_header)),
+                    html.Tbody(table_body)
+                ]
+            )
+        ])
+    except Exception as e:
+        return html.Div([html.P(f"Error: {str(e)}")])
 
 
 @callback(
@@ -424,227 +518,107 @@ def parse_datalog_query(query, db_path):
 def format_arg(arg):
     arg_type, arg_value = arg
     if arg_type == 'var':
-        return arg_value if arg_value else '_'
-    elif arg_type == 'num':
+        return arg_value or '_'
+    if arg_type == 'num':
         return str(arg_value)
-    elif arg_type == 'str':
+    if arg_type == 'str':
         return f"'{arg_value}'"
     return str(arg_value)
 
 
 # Function to extract comparison conditions from rule bodies
 def extract_comparison_conditions(rules):
-    # Track variables in each predicate and their associated comparisons
-    predicate_variables = {}
-    comparison_conditions = {}
-
-    for rule in rules:
-        _, body = rule  # We don't need the head for this analysis
-
-        # Track which variables are used in which predicates
+    predicate_variables, comparison_conditions = {}, {}
+    for _, body in rules:
         var_to_pred = {}
-
-        # First pass: collect all variables for each predicate
-        for literal in body:
-            _, pred = literal
+        for _, pred in body:
             if pred[0] == 'regular':
                 pred_name = pred[1]
-                # Add predicate entry if it doesn't exist
-                if pred_name not in predicate_variables:
-                    predicate_variables[pred_name] = set()
-
-                # Add variables from this predicate
+                predicate_variables.setdefault(pred_name, set())
                 for arg in pred[2]:
                     if arg[0] == 'var' and arg[1] and arg[1] != '_':
                         predicate_variables[pred_name].add(arg[1])
-                        if arg[1] not in var_to_pred:
-                            var_to_pred[arg[1]] = []
-                        var_to_pred[arg[1]].append(pred_name)
-
-        # Second pass: associate comparison conditions with related predicates
-        for literal in body:
-            _, pred = literal
+                        var_to_pred.setdefault(arg[1], []).append(pred_name)
+        for _, pred in body:
             if pred[0] == 'comparison':
-                left_var = None
-                right_var = None
-
-                # Extract variables from comparison
-                if pred[1][0] == 'var' and pred[1][1] and pred[1][1] != '_':
-                    left_var = pred[1][1]
-                if pred[3][0] == 'var' and pred[3][1] and pred[3][1] != '_':
-                    right_var = pred[3][1]
-
-                # Format the comparison
-                left_arg = format_arg(pred[1])
-                op = pred[2]
-                right_arg = format_arg(pred[3])
-                condition = f"{left_arg} {op} {right_arg}"
-
-                # Find predicates related to these variables
+                left_var = pred[1][1] if pred[1][0] == 'var' and pred[1][1] and pred[1][1] != '_' else None
+                right_var = pred[3][1] if pred[3][0] == 'var' and pred[3][1] and pred[3][1] != '_' else None
+                condition = f"{format_arg(pred[1])} {pred[2]} {format_arg(pred[3])}"
                 related_preds = set()
                 if left_var and left_var in var_to_pred:
                     related_preds.update(var_to_pred[left_var])
                 if right_var and right_var in var_to_pred:
                     related_preds.update(var_to_pred[right_var])
-
-                # Add condition to each related predicate
                 for pred_name in related_preds:
-                    if pred_name not in comparison_conditions:
-                        comparison_conditions[pred_name] = []
+                    comparison_conditions.setdefault(pred_name, [])
                     if condition not in comparison_conditions[pred_name]:
                         comparison_conditions[pred_name].append(condition)
-
     return comparison_conditions
 
 
 # Function to build visual graph elements from datalog structures
 def build_datalog_graph(pred_dict, dgraph, rules=None):
-    elements = []
-
-    # Extract comparison conditions if rules are provided
-    comparison_conditions = {}
-    pred_contents = {}  # Track values used in predicates
-
+    elements, pred_contents = [], {}
+    comparison_conditions = extract_comparison_conditions(
+        rules) if rules else {}
     if rules:
-        comparison_conditions = extract_comparison_conditions(rules)
-        # Extract literal values for display
-        for rule in rules:
-            head, body = rule
+        for head, body in rules:
             head_name = head[1]
-
-            # Process head predicate arguments
-            if head_name not in pred_contents:
-                pred_contents[head_name] = []
-
-            # Process body predicates
-            for literal in body:
-                _, pred = literal
+            pred_contents.setdefault(head_name, [])
+            for _, pred in body:
                 if pred[0] == 'regular':
                     pred_name = pred[1]
-                    if pred_name not in pred_contents:
-                        pred_contents[pred_name] = []
-
-                    # Extract constant values
-                    const_values = []
-                    for arg in pred[2]:
-                        if arg[0] in ('str', 'num'):
-                            const_values.append(format_arg(arg))
-
+                    pred_contents.setdefault(pred_name, [])
+                    const_values = [format_arg(
+                        arg) for arg in pred[2] if arg[0] in ('str', 'num')]
                     if const_values:
                         content = ", ".join(const_values)
                         if content not in pred_contents[pred_name]:
                             pred_contents[pred_name].append(content)
-
-    # Create a reverse dependency graph (who depends on me)
-    reverse_deps = {}
-    for pred in pred_dict:
-        reverse_deps[pred] = []
-
-    # Add EDB predicates to reverse_deps
-    all_body_preds = set()
-    for head in dgraph:
-        all_body_preds.update(dgraph[head])
+    all_body_preds = {p for heads in dgraph.values() for p in heads}
     edb_preds = [p for p in all_body_preds if p not in pred_dict]
-    for edb in edb_preds:
-        reverse_deps[edb] = []
-
-    # Fill reverse dependencies
-    for head in dgraph:
-        for body in dgraph[head]:
-            if body not in reverse_deps:
-                reverse_deps[body] = []
-            reverse_deps[body].append(head)
-
-    # Identify the answer predicate
     answer_pred = next((p for p in pred_dict if p.lower() == 'answer'), None)
 
-    # Add all predicates as nodes
-    # First, add the answer node with special styling if it exists
+    def add_node(pred, node_type, classes):
+        label = pred
+        if pred in pred_contents and pred_contents[pred]:
+            label += f"\n({', '.join(pred_contents[pred])})"
+        elements.append({
+            'data': {
+                'id': f"node_{pred}",
+                'label': label,
+                'type': node_type,
+                'arity': len(pred_dict[pred][0]) if pred in pred_dict else None,
+                'conditions': comparison_conditions.get(pred, []),
+                'contents': pred_contents.get(pred, [])
+            },
+            'classes': classes
+        })
     if answer_pred:
-        label = answer_pred
-        if answer_pred in pred_contents and pred_contents[answer_pred]:
-            label += f"\n({', '.join(pred_contents[answer_pred])})"
-        if answer_pred in comparison_conditions and comparison_conditions[answer_pred]:
-            label += "\n" + "\n".join(comparison_conditions[answer_pred])
-
-        elements.append({
-            'data': {
-                'id': f"node_{answer_pred}",
-                'label': label,
-                'type': 'idb',
-                'arity': len(pred_dict[answer_pred][0]),
-                'conditions': comparison_conditions.get(answer_pred, []),
-                'contents': pred_contents.get(answer_pred, [])
-            },
-            'classes': 'answer-node'
-        })
-    
-    # Add all IDB predicates (except answer which is already added)
+        add_node(answer_pred, 'idb', 'answer-node')
     for pred in pred_dict:
-        if pred == answer_pred:  # Skip answer, already added
-            continue
-            
-        label = pred
-        if pred in pred_contents and pred_contents[pred]:
-            label += f"\n({', '.join(pred_contents[pred])})"
-        # We no longer add comparison conditions to the node label since they are separate nodes
-
-        elements.append({
-            'data': {
-                'id': f"node_{pred}",
-                'label': label,
-                'type': 'idb',
-                'arity': len(pred_dict[pred][0]),
-                'conditions': comparison_conditions.get(pred, []),
-                'contents': pred_contents.get(pred, [])
-            },
-            'classes': 'idb-node'
-        })
-    
-    # Add all EDB predicates
+        if pred != answer_pred:
+            add_node(pred, 'idb', 'idb-node')
     for pred in edb_preds:
-        label = pred
-        if pred in pred_contents and pred_contents[pred]:
-            label += f"\n({', '.join(pred_contents[pred])})"
-        # We no longer add comparison conditions to the node label since they are separate nodes
-
-        elements.append({
-            'data': {
-                'id': f"node_{pred}",
-                'label': label,
-                'type': 'edb',
-                'conditions': comparison_conditions.get(pred, []),
-                'contents': pred_contents.get(pred, [])
-            },
-            'classes': 'edb-node'
-        })
-    
-    # Add edges based on dependency graph
-    edge_id = 0
+        add_node(pred, 'edb', 'edb-node')
+    # Use a set to track unique edges (source, target) to avoid duplicates
+    edge_set = set()
     for head in dgraph:
         for body in dgraph[head]:
-            edge_id += 1
-            # Reverse the direction: head depends on body, so arrow should point from head to body
-            elements.append({
-                'data': {
-                    'id': f"edge_{edge_id}",
-                    'source': f"node_{head}",  # Changed from body to head
-                    'target': f"node_{body}"   # Changed from head to body
-                }
-            })
-    
-    # Add any comparison nodes and connect them - create unique comparison nodes
-    created_comparisons = {}  # Track already created comparison nodes
-    
+            edge = (f"node_{head}", f"node_{body}")
+            if edge not in edge_set:
+                edge_set.add(edge)
+                elements.append({
+                    'data': {
+                        'id': f"edge_{head}_{body}",
+                        'source': edge[0],
+                        'target': edge[1]
+                    }
+                })
+    created_comparisons = {}
     for pred_name, conditions in comparison_conditions.items():
-        if not conditions:
-            continue
-            
         for condition in conditions:
-            # Use the condition itself as the ID to prevent duplicates
             comp_key = condition.replace(" ", "_")
-            
-            # Create the node only if it doesn't exist yet
             if comp_key not in created_comparisons:
                 comp_id = f"comp_{comp_key}"
                 elements.append({
@@ -658,28 +632,16 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 created_comparisons[comp_key] = comp_id
             else:
                 comp_id = created_comparisons[comp_key]
-            
-            # Add edge from predicate to comparison (predicate depends on comparison)
-            edge_id += 1
-            elements.append({
-                'data': {
-                    'id': f"edge_{edge_id}",
-                    'source': f"node_{pred_name}",
-                    'target': f"node_{comp_id}"
-                }
-            })
-
-    # Add edges from head predicates to body predicates (top-down direction)
-    for head_pred in dgraph:
-        for body_pred in dgraph[head_pred]:
-            elements.append({
-                'data': {
-                    'source': f"node_{head_pred}",
-                    'target': f"node_{body_pred}",
-                    'id': f"edge_{head_pred}_{body_pred}"
-                }
-            })
-
+            edge = (f"node_{pred_name}", f"node_{comp_id}")
+            if edge not in edge_set:
+                edge_set.add(edge)
+                elements.append({
+                    'data': {
+                        'id': f"edge_{pred_name}_{comp_id}",
+                        'source': edge[0],
+                        'target': edge[1]
+                    }
+                })
     return elements
 
 
@@ -687,7 +649,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 @callback(
     [Output('datalog-parsed-data', 'data'),
      Output('datalog-graph', 'elements'),
-     Output('datalog-output', 'children'),
      Output('datalog-error', 'displayed'),
      Output('datalog-error', 'message'),
      Output('datalog-reset-tap-data', 'data')],
@@ -701,29 +662,29 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 def process_datalog_query(_, __, query, db_file, reset_counter):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, no_update, False, "", reset_counter
+        return no_update, no_update, False, "", reset_counter
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if triggered_id == 'datalog-reset':
-        return None, [], "", False, "", reset_counter + 1
+        return None, [], False, "", reset_counter + 1
 
     # Validate inputs
     if not query:
-        return no_update, no_update, no_update, True, "Please enter a Datalog query", reset_counter
+        return no_update, no_update, True, "Please enter a Datalog query", reset_counter
 
     if not db_file:
-        return no_update, no_update, no_update, True, "Please select a database", reset_counter
+        return no_update, no_update, True, "Please select a database", reset_counter
 
     # Make sure query ends with $
     if not query.strip().endswith('$'):
-        return no_update, no_update, no_update, True, "Query must end with $", reset_counter
+        return no_update, no_update, True, "Query must end with $", reset_counter
 
     # Parse and process the query
     result, message = parse_datalog_query(query, db_file)
 
     if message != "OK" or result is None:
-        return no_update, no_update, no_update, True, message, reset_counter
+        return no_update, no_update, True, message, reset_counter
 
     # Build the graph visualization with rules included for conditions
     graph_elements = build_datalog_graph(
@@ -732,19 +693,5 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
         result['rules']
     )
 
-    # Count comparison conditions
-    condition_count = 0
-    for rule in result['rules']:
-        for literal in rule[1]:
-            if literal[1][0] == 'comparison':
-                condition_count += 1
-
-    # Generate output message with additional details
-    output_text = (
-        f"Parsed {len(result['pred_dict'])} predicates, "
-        f"{len(result['dgraph'])} dependencies, "
-        f"and {condition_count} comparison conditions"
-    )
-
-    # Return the processed data
-    return result, graph_elements, output_text, False, "", reset_counter + 1
+    # Return the processed data (no output panel)
+    return result, graph_elements, False, "", reset_counter + 1
