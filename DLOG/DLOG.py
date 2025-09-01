@@ -448,8 +448,9 @@ def generate_predicate_sql(pred, pred_dict, db, use_cte_names=False, is_cte=True
                     # For CTEs, use standardized column names
                     select_exprs.append(f"{var_map[var_name]} AS c{i}")
                 else:
-                    # For final query, use original variable names
-                    select_exprs.append(f"{var_map[var_name]} AS {var_name}")
+                    # For final query, use original variable names as aliases
+                    col_ref = var_map[var_name]
+                    select_exprs.append(f"{col_ref} AS {var_name}")
             else:
                 if is_cte:
                     select_exprs.append(f"NULL AS c{i}")

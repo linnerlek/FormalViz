@@ -1,3 +1,4 @@
+from dash import clientside_callback
 import sqlite3
 from DLOG.DLOG import generate_sql
 import os
@@ -129,6 +130,10 @@ layout = html.Div([
     dcc.Store(id='datalog-parsed-data'),
     dcc.Store(id='datalog-code-click', data=None),
     dcc.Store(id="datalog-reset-tap-data", data=0),
+    dcc.Store(id="datalog-current-page", data=0),
+    dcc.Store(id="datalog-prev-clicks", data=0),
+    dcc.Store(id="datalog-next-clicks", data=0),
+    dcc.Store(id="datalog-row-count", data=0),
     html.Div(id="app-container", children=[
         html.Div(id="left-section", className="left-section", children=[
             html.Div(className="input-container", children=[
@@ -170,8 +175,22 @@ layout = html.Div([
                     minZoom=0.5,
                     maxZoom=2.0
                 ),
-                html.Div(id='datalog-results-panel', className="results-panel",
-                         children="Click a node to see data.")
+                html.Div(
+                    className="table-and-pagination",
+                    children=[
+                        html.Div(id='datalog-results-panel', className="results-panel",
+                                 children="Click a node to see data."),
+                        html.Div(
+                            [
+                                html.Button(
+                                    "Previous", id="datalog-prev-page-btn", n_clicks=0),
+                                html.Button(
+                                    "Next", id="datalog-next-page-btn", n_clicks=0)
+                            ],
+                            className="pagination-buttons"
+                        ),
+                    ]
+                )
             ]),
         ]),
         html.Div(id="divider", className="divider"),
@@ -222,52 +241,61 @@ layout = html.Div([
 
 
 @callback(
-    Output('datalog-results-panel', 'children'),
-    [Input('datalog-graph', 'tapNodeData')],
+    [Output('datalog-results-panel', 'children'),
+     Output('datalog-row-count', 'data')],
+    [Input('datalog-graph', 'tapNodeData'),
+     Input('datalog-current-page', 'data')],
     [State('datalog-parsed-data', 'data'),
      State('datalog-db-dropdown', 'value')],
     prevent_initial_call=True
 )
-def show_node_data(node_data, parsed_data, db_file):
+def show_node_data(node_data, current_page, parsed_data, db_file):
     if not node_data or not parsed_data or not db_file:
-        return "Click a node to see data."
+        return "Click a node to see data.", 0
+
     pred_name = node_data['label'].split('\n')[0]
     pred_dict = parsed_data['pred_dict']
+
     # If this is a comparison node, just explain it
     if node_data.get('type') == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
         return html.Div([
             html.P("This is a comparison/condition node. It does not produce data directly, but applies a condition to its connected predicates.",
                    style={"fontStyle": "italic"}),
             html.P(f"Condition: {node_data['label']}")
-        ])
+        ]), 0
+
     try:
         db_path = os.path.join(DB_FOLDER, db_file)
-        from DLOG.SQLite3 import SQLite3
         db = SQLite3()
         db.open(db_path)
         sql = None
+
         # Check if EDB node (not in pred_dict)
         if pred_name not in pred_dict:
             col_names = db.getAttributes(pred_name)
             filter_clauses = []
-            # Map variable name to column name for this predicate
-            var_to_col = {f"{v[1]}": col_names[i]
-                          for i, v in enumerate(db.getAttributes(pred_name))}
-            # Go through all rules and collect relevant filters
+            var_aliases = {}  # Map column indices to variable names
+
+            # Go through all rules and collect relevant filters and variable mappings
             for rule in parsed_data['rules']:
-                head, body = rule
+                _, body = rule
                 for lit in body:
                     if lit[1][0] == 'regular' and lit[1][1] == pred_name:
-                        # Constants in EDB predicate
+                        # Map variables to column indices for this predicate
                         for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] in ('num', 'str'):
+                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
+                                var_aliases[idx] = arg[1]
+                            elif arg[0] in ('num', 'str'):
+                                # Constants in EDB predicate
                                 filter_clauses.append(
                                     f"{col_names[idx]} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
-                        # Map variables in this literal to columns
+
+                        # Map variables in this literal to columns for comparisons
                         var_map = {}
                         for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] == 'var' and arg[1]:
+                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
                                 var_map[arg[1]] = col_names[idx]
+
                         # Now look for comparisons in the same body that use these variables
                         for comp_lit in body:
                             if comp_lit[1][0] == 'comparison':
@@ -286,22 +314,75 @@ def show_node_data(node_data, parsed_data, db_file):
                                     comp = f"{val} {op} {col}"
                                 if comp:
                                     filter_clauses.append(comp)
+
+            # Build SELECT clause with variable aliases
+            select_parts = []
+            for idx, col_name in enumerate(col_names):
+                if idx in var_aliases:
+                    select_parts.append(f"{col_name} AS {var_aliases[idx]}")
+                else:
+                    select_parts.append(col_name)
+
             where_sql = f" WHERE {' AND '.join(filter_clauses)}" if filter_clauses else ''
-            sql = f"SELECT {', '.join(col_names)} FROM {pred_name}{where_sql}"
+            sql = f"SELECT {', '.join(select_parts)} FROM {pred_name}{where_sql}"
         else:
             sql = generate_sql(pred_name, pred_dict, db=db)
+
+        # Execute SQL and get results
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
         col_names = [desc[0] for desc in cur.description]
         conn.close()
+
         if not rows:
-            return html.Div([html.P("No data found for this node.")])
+            return html.Div([
+                html.Div([
+                    html.H4("Generated SQL Query:", style={
+                            "margin": "0 0 10px 0"}),
+                    html.Pre(sql, style={
+                        "background": "#f5f5f5",
+                        "padding": "10px",
+                        "border": "1px solid #ddd",
+                        "border-radius": "4px",
+                        "font-size": "12px",
+                        "white-space": "pre-wrap",
+                        "margin": "0 0 15px 0"
+                    })
+                ]),
+                html.P("No data found for this node.")
+            ]), 0
+
+        # Pagination logic
+        rows_per_page = 8
+        total_rows = len(rows)
+        max_page = (total_rows - 1) // rows_per_page if total_rows > 0 else 0
+        current_page = min(current_page, max_page)
+        start_index = current_page * rows_per_page
+        end_index = start_index + rows_per_page
+        visible_rows = rows[start_index:end_index]
+
+        # Create table
         table_header = [html.Th(col) for col in col_names]
-        table_body = [html.Tr([html.Td(cell) for cell in row]) for row in rows]
+        table_body = [html.Tr([html.Td(cell) for cell in row])
+                      for row in visible_rows]
+
         return html.Div([
-            html.P(f"Number of tuples: {len(rows)}", className="tuple-count"),
+            html.Div([
+                html.H4("Generated SQL Query:", style={
+                        "margin": "0 0 10px 0"}),
+                html.Pre(sql, style={
+                    "background": "#f5f5f5",
+                    "padding": "10px",
+                    "border": "1px solid #ddd",
+                    "border-radius": "4px",
+                    "font-size": "12px",
+                    "white-space": "pre-wrap",
+                    "margin": "0 0 15px 0"
+                })
+            ]),
+            html.P(f"Number of tuples: {total_rows}", className="tuple-count"),
             html.Table(
                 className='classic-table',
                 children=[
@@ -309,9 +390,66 @@ def show_node_data(node_data, parsed_data, db_file):
                     html.Tbody(table_body)
                 ]
             )
-        ])
+        ]), total_rows
+
     except Exception as e:
-        return html.Div([html.P(f"Error: {str(e)}")])
+        return html.Div([html.P(f"Error: {str(e)}")]), 0
+
+
+@callback(
+    [Output("datalog-current-page", "data", allow_duplicate=True),
+     Output("datalog-prev-clicks", "data", allow_duplicate=True),
+     Output("datalog-next-clicks", "data", allow_duplicate=True)],
+    [Input("datalog-prev-page-btn", "n_clicks"),
+     Input("datalog-next-page-btn", "n_clicks"),
+     Input('datalog-graph', 'tapNodeData'),
+     Input('datalog-submit', 'n_clicks')],
+    [State("datalog-current-page", "data"),
+     State("datalog-prev-clicks", "data"),
+     State("datalog-next-clicks", "data"),
+     State("datalog-row-count", "data")],
+    prevent_initial_call=True
+)
+def update_datalog_page(prev_clicks, next_clicks, node_data, submit_clicks,
+                        current_page, last_prev_clicks, last_next_clicks, row_count):
+    ctx = dash.callback_context
+    trigger = ctx.triggered[0]['prop_id'].split(
+        '.')[0] if ctx.triggered else None
+
+    if trigger in ['datalog-graph', 'datalog-submit']:
+        return 0, 0, 0
+
+    rows_per_page = 8
+    max_page = max(0, (row_count - 1) // rows_per_page) if row_count else 0
+
+    if trigger == 'datalog-prev-page-btn' and prev_clicks > last_prev_clicks:
+        new_page = max(0, current_page - 1)
+    elif trigger == 'datalog-next-page-btn' and next_clicks > last_next_clicks:
+        new_page = min(max_page, current_page + 1)
+    else:
+        new_page = current_page
+
+    new_page = max(0, min(new_page, max_page))
+
+    return new_page, prev_clicks, next_clicks
+
+
+# Add clientside callback to show/hide pagination buttons
+
+clientside_callback(
+    """
+    function(rowCount) {
+        if (rowCount > 8) {
+            return [{'display': 'inline-block'}, {'display': 'inline-block'}];
+        } else {
+            return [{'display': 'none'}, {'display': 'none'}];
+        }
+    }
+    """,
+    [Output("datalog-prev-page-btn", "style"),
+     Output("datalog-next-page-btn", "style")],
+    [Input("datalog-row-count", "data")]
+)
 
 
 @callback(

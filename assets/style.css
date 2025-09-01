@@ -408,10 +408,6 @@ html {
   width: 100%;
   height: 100%;
 }
-#tree-table-divider {
-  cursor: ew-resize;
-  width: 5px;
-}
 .table-and-pagination {
   flex-basis: 45%;
   display: flex;
@@ -420,7 +416,8 @@ html {
   margin-top: 10px;
   overflow-y: auto;
 }
-#node-table-placeholder {
+#node-table-placeholder,
+#datalog-results-panel {
   height: 110%;
   width: 100%;
   overflow-y: auto;
@@ -436,7 +433,9 @@ html {
   padding-bottom: 10px;
 }
 #prev-page-btn,
-#next-page-btn {
+#next-page-btn,
+#datalog-prev-page-btn,
+#datalog-next-page-btn {
   padding: 5px;
   font-size: 16px;
   color: white;
@@ -444,7 +443,9 @@ html {
   border: 0;
 }
 #prev-page-btn:hover,
-#next-page-btn:hover {
+#next-page-btn:hover,
+#datalog-prev-page-btn:hover,
+#datalog-next-page-btn:hover {
   cursor: pointer;
   background-color: #05508d;
 }
