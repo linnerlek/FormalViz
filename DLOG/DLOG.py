@@ -199,290 +199,290 @@ def format_sql_value(arg):
     return str(arg[1])
 
 
-def generate_sql(pred, pred_dict, db=None, edb_tables=None, cte_defs=None, visited=None):
+def generate_sql(pred, pred_dict, db=None, rules=None):
     """
-    Generate SQL for the given predicate using the Datalog program in pred_dict.
-    Handles negation, comparisons, temps, and multi-rule predicates.
-    Returns a string with the SQL query for the predicate.
-    db: SQLite3 instance (required for EDB schema lookup)
+    Unified SQL generation function that works for both EDB and IDB predicates.
+    Handles variable projection, filtering, JOINs, CTEs, and proper SQL structure.
     """
-    if edb_tables is None:
-        edb_tables = set()
-    if cte_defs is None:
-        cte_defs = {}
-    if visited is None:
-        visited = set()
-
-    if pred in visited:
-        return cte_defs.get(pred, None)  # Already generated
-    visited.add(pred)
-
-    # EDB predicate: just select from the table with real column names
+    if db is None:
+        raise Exception("Database handle (db) required for SQL generation.")
+    
+    # For EDB predicates, generate simple SELECT with proper variable mapping
     if pred not in pred_dict:
-        if db is None:
-            raise Exception(
-                "Database handle (db) required for EDB predicate SQL generation.")
         if not db.relationExists(pred):
             raise Exception(f"EDB predicate '{pred}' not found in database.")
+        
+        # Find how this EDB predicate is used in the rules to get variable mapping
         col_names = db.getAttributes(pred)
-        select_sql = f"SELECT {', '.join(col_names)} FROM {pred}"
-        return select_sql
-
-    # Build complete SQL with all necessary CTEs
-    return generate_complete_sql(pred, pred_dict, db)
-
-
-def generate_complete_sql(target_pred, pred_dict, db):
-    """
-    Generate a complete SQL query with CTEs for all IDB predicates that the target predicate depends on.
-    """
-    # Find all IDB predicates that need to be defined
-    needed_preds = find_dependencies(target_pred, pred_dict)
-
-    # Sort predicates in dependency order (bottom-up)
-    ordered_preds = topological_sort(needed_preds, pred_dict)
-
-    # Generate CTE definitions
-    cte_parts = []
-
-    for pred in ordered_preds:
-        if pred != target_pred:  # Don't include the target predicate in CTEs
-            cte_sql = generate_predicate_sql(
-                pred, pred_dict, db, use_cte_names=True, is_cte=True)
-            cte_parts.append(f"{pred} AS (\n{cte_sql}\n)")
-
-    # Generate the main query for the target predicate (with original variable names)
-    main_sql = generate_predicate_sql(
-        target_pred, pred_dict, db, use_cte_names=True, is_cte=False)
-
-    # Combine CTEs and main query
-    if cte_parts:
-        full_sql = f"WITH {',\n'.join(cte_parts)}\n{main_sql}"
-    else:
-        full_sql = main_sql
-
-    return full_sql
-
-
-def find_dependencies(pred, pred_dict, visited=None):
-    """Find all IDB predicates that this predicate depends on (transitively)."""
-    if visited is None:
-        visited = set()
-
-    if pred in visited:
-        return set()
-    visited.add(pred)
-
-    dependencies = {pred}
-
-    if pred in pred_dict:
-        args, rules = pred_dict[pred]
+        var_aliases = {}
+        filter_conditions = []
+        
+        if rules:
+            for rule in rules:
+                _, body = rule
+                # Look for this predicate in the rule body
+                for lit in body:
+                    if lit[1][0] == 'regular' and lit[1][1] == pred:
+                        # Map variables to column indices for this predicate
+                        for idx, arg in enumerate(lit[1][2]):
+                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
+                                var_aliases[idx] = arg[1]
+                            elif arg[0] in ('num', 'str'):
+                                # Constants in EDB predicate
+                                filter_conditions.append(
+                                    f"{col_names[idx]} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
+                        
+                        # Look for comparisons that affect this predicate
+                        var_map = {}
+                        for idx, arg in enumerate(lit[1][2]):
+                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
+                                var_map[arg[1]] = col_names[idx]
+                        
+                        for comp_lit in body:
+                            if comp_lit[1][0] == 'comparison':
+                                left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
+                                # Check if comparison involves variables from this predicate
+                                if (left[0] == 'var' and left[1] in var_map) or (right[0] == 'var' and right[1] in var_map):
+                                    left_val = var_map.get(left[1], left[1]) if left[0] == 'var' else (left[1] if left[0] == 'num' else repr(left[1]))
+                                    right_val = var_map.get(right[1], right[1]) if right[0] == 'var' else (right[1] if right[0] == 'num' else repr(right[1]))
+                                    filter_conditions.append(f"{left_val} {op} {right_val}")
+        
+        # Build SELECT clause with variable aliases
+        select_parts = []
+        for idx, col_name in enumerate(col_names):
+            if idx in var_aliases:
+                select_parts.append(f"{col_name} AS {var_aliases[idx]}")
+            else:
+                select_parts.append(col_name)
+        
+        where_clause = f" WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ''
+        return f"SELECT {', '.join(select_parts)} FROM {pred}{where_clause}"
+    
+    # For IDB predicates, generate SQL with CTEs for dependencies
+    # Find all IDB predicates that need to be defined (dependencies)
+    def find_deps(target_pred, visited=None):
+        if visited is None:
+            visited = set()
+        if target_pred in visited:
+            return set()
+        visited.add(target_pred)
+        
+        dependencies = {target_pred}
+        if target_pred in pred_dict:
+            args, rules = pred_dict[target_pred]
+            for body in rules:
+                for lit in body:
+                    sign, atom = lit
+                    if atom[0] == 'regular':
+                        dep_pred = atom[1]
+                        if dep_pred in pred_dict:  # IDB predicate
+                            dependencies.update(find_deps(dep_pred, visited.copy()))
+        return dependencies
+    
+    needed_preds = find_deps(pred)
+    
+    # Sort predicates in dependency order (topological sort)
+    def topo_sort(preds):
+        result = []
+        remaining = set(preds)
+        
+        while remaining:
+            ready = []
+            for p in remaining:
+                if p in pred_dict:
+                    args, rules = pred_dict[p]
+                    has_idb_deps = False
+                    for body in rules:
+                        for lit in body:
+                            sign, atom = lit
+                            if atom[0] == 'regular':
+                                dep_pred = atom[1]
+                                if dep_pred in pred_dict and dep_pred in remaining and dep_pred != p:
+                                    has_idb_deps = True
+                                    break
+                        if has_idb_deps:
+                            break
+                    if not has_idb_deps:
+                        ready.append(p)
+                else:
+                    ready.append(p)  # EDB predicate
+            
+            if not ready:
+                ready = [next(iter(remaining))]  # Break cycles
+            
+            result.extend(ready)
+            remaining -= set(ready)
+        
+        return result
+    
+    ordered_preds = topo_sort(needed_preds)
+    
+    # Generate SQL for a single predicate
+    def gen_pred_sql(target_pred, use_cte_names=False, is_cte=True):
+        if target_pred not in pred_dict:
+            # EDB predicate
+            col_names = db.getAttributes(target_pred)
+            return f"SELECT {', '.join(col_names)} FROM {target_pred}"
+        
+        args, rules = pred_dict[target_pred]
+        select_cols = [a[1] for a in args]  # Variable names for the head
+        rule_sqls = []
+        
         for body in rules:
+            # Track tables/predicates used in this rule
+            join_tables = []
+            comparison_conditions = []
+            var_map = {}
+            table_count = 0
+            
+            # First pass: identify all predicates and build variable mappings
             for lit in body:
                 sign, atom = lit
                 if atom[0] == 'regular':
-                    dep_pred = atom[1]
-                    if dep_pred in pred_dict:  # IDB predicate
-                        dependencies.update(find_dependencies(
-                            dep_pred, pred_dict, visited.copy()))
-
-    return dependencies
-
-
-def topological_sort(preds, pred_dict):
-    """Sort predicates in dependency order (bottom-up)."""
-    # Simple topological sort - predicates with no IDB dependencies come first
-    result = []
-    remaining = set(preds)
-
-    while remaining:
-        # Find predicates with no remaining dependencies
-        ready = []
-        for pred in remaining:
-            if pred in pred_dict:
-                args, rules = pred_dict[pred]
-                has_idb_deps = False
-                for body in rules:
-                    for lit in body:
-                        sign, atom = lit
-                        if atom[0] == 'regular':
-                            dep_pred = atom[1]
-                            if dep_pred in pred_dict and dep_pred in remaining and dep_pred != pred:
-                                has_idb_deps = True
-                                break
-                    if has_idb_deps:
-                        break
-                if not has_idb_deps:
-                    ready.append(pred)
-            else:
-                ready.append(pred)  # EDB predicate
-
-        if not ready:
-            # Break cycles by picking one arbitrarily
-            ready = [next(iter(remaining))]
-
-        result.extend(ready)
-        remaining -= set(ready)
-
-    return result
-
-
-def generate_predicate_sql(pred, pred_dict, db, use_cte_names=False, is_cte=True):
-    """
-    Generate SQL for a single predicate, using CTE names for IDB predicates if use_cte_names is True.
-    If is_cte is True, use standardized column names (c0, c1, etc.) for consistency.
-    If is_cte is False, use the original variable names from the predicate head.
-    """
-    if pred not in pred_dict:
-        # EDB predicate
-        if db is None:
-            raise Exception(
-                "Database handle required for EDB predicate SQL generation.")
-        if not db.relationExists(pred):
-            raise Exception(f"EDB predicate '{pred}' not found in database.")
-        col_names = db.getAttributes(pred)
-        return f"SELECT {', '.join(col_names)} FROM {pred}"
-
-    args, rules = pred_dict[pred]
-    select_cols = [a[1] for a in args]  # Variable names for the head
-    rule_sqls = []
-
-    for body in rules:
-        # Track tables/predicates used in this rule
-        join_tables = []  # (tablename, alias, args, sign)
-        comparison_conditions = []
-        var_map = {}  # Maps variables to their first occurrence column reference
-        table_count = 0
-
-        # First pass: identify all predicates and build variable mappings
-        for lit in body:
-            sign, atom = lit
-            if atom[0] == 'regular':
-                tablename = atom[1]
-                table_alias = f"t{table_count}"
-                table_count += 1
-
-                # Determine column names
-                if use_cte_names and tablename in pred_dict:
-                    # IDB predicate - use c0, c1, c2, etc.
-                    col_names = [f"c{i}" for i in range(len(atom[2]))]
-                elif db is not None and tablename not in pred_dict:
-                    # EDB predicate - use actual column names
-                    col_names = db.getAttributes(tablename)
-                else:
-                    # IDB predicate without CTEs - use c0, c1, c2, etc.
-                    col_names = [f"c{i}" for i in range(len(atom[2]))]
-
-                join_tables.append(
-                    (tablename, table_alias, atom[2], sign, col_names))
-
-                # Map variables to columns (only for positive literals)
+                    tablename = atom[1]
+                    table_alias = f"t{table_count}"
+                    table_count += 1
+                    
+                    # Determine column names
+                    if use_cte_names and tablename in pred_dict:
+                        col_names = [f"c{i}" for i in range(len(atom[2]))]
+                    elif tablename not in pred_dict:
+                        col_names = db.getAttributes(tablename)
+                    else:
+                        col_names = [f"c{i}" for i in range(len(atom[2]))]
+                    
+                    join_tables.append((tablename, table_alias, atom[2], sign, col_names))
+                    
+                    # Map variables to columns (only for positive literals)
+                    if sign == 'pos':
+                        for i, arg in enumerate(atom[2]):
+                            if arg[0] == 'var' and arg[1] != '_':
+                                var_name = arg[1]
+                                col_ref = f"{table_alias}.{col_names[i]}"
+                                if var_name not in var_map:
+                                    var_map[var_name] = col_ref
+                
+                elif atom[0] == 'comparison':
+                    left_arg, op, right_arg = atom[1], atom[2], atom[3]
+                    comparison_conditions.append((left_arg, op, right_arg))
+            
+            # Build FROM clause with JOINs
+            positive_tables = []
+            for tablename, table_alias, args, sign, col_names in join_tables:
                 if sign == 'pos':
-                    for i, arg in enumerate(atom[2]):
+                    positive_tables.append((tablename, table_alias, args, col_names))
+            
+            # Build conditions
+            join_conditions = []
+            filter_conditions = []
+            
+            # Variable equality conditions
+            for tablename, table_alias, args, sign, col_names in join_tables:
+                if sign == 'pos':
+                    for i, arg in enumerate(args):
+                        col_ref = f"{table_alias}.{col_names[i]}"
                         if arg[0] == 'var' and arg[1] != '_':
                             var_name = arg[1]
-                            col_ref = f"{table_alias}.{col_names[i]}"
-                            if var_name not in var_map:
-                                var_map[var_name] = col_ref
-
-            elif atom[0] == 'comparison':
-                # Handle comparison predicates
-                left_arg, op, right_arg = atom[1], atom[2], atom[3]
-                comparison_conditions.append((left_arg, op, right_arg))
-
-        # Build FROM clause (only positive literals)
-        from_tables = []
-        for tablename, table_alias, args, sign, col_names in join_tables:
-            if sign == 'pos':
-                from_tables.append(f"{tablename} {table_alias}")
-
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Variable equality conditions
-        for tablename, table_alias, args, sign, col_names in join_tables:
-            if sign == 'pos':
-                for i, arg in enumerate(args):
-                    col_ref = f"{table_alias}.{col_names[i]}"
-                    if arg[0] == 'var' and arg[1] != '_':
-                        var_name = arg[1]
-                        if var_map[var_name] != col_ref:
-                            # This variable appears elsewhere, add equality condition
-                            where_conditions.append(
-                                f"{col_ref} = {var_map[var_name]}")
-                    elif arg[0] in ('num', 'str'):
-                        # Constant condition
-                        where_conditions.append(
-                            f"{col_ref} = {format_sql_value(arg)}")
-
-        # Comparison conditions
-        for left_arg, op, right_arg in comparison_conditions:
-            left_val = format_comparison_operand(left_arg, var_map)
-            right_val = format_comparison_operand(right_arg, var_map)
-            where_conditions.append(f"{left_val} {op} {right_val}")
-
-        # Negation conditions (NOT EXISTS)
-        for tablename, table_alias, args, sign, col_names in join_tables:
-            if sign == 'neg':
-                # Build NOT EXISTS subquery
-                sub_conditions = []
-                for i, arg in enumerate(args):
-                    col_ref = f"{table_alias}.{col_names[i]}"
-                    if arg[0] == 'var' and arg[1] != '_' and arg[1] in var_map:
-                        sub_conditions.append(f"{col_ref} = {var_map[arg[1]]}")
-                    elif arg[0] in ('num', 'str'):
-                        sub_conditions.append(
-                            f"{col_ref} = {format_sql_value(arg)}")
-
-                if sub_conditions:
-                    not_exists = f"NOT EXISTS (SELECT 1 FROM {tablename} {table_alias} WHERE {' AND '.join(sub_conditions)})"
-                else:
-                    not_exists = f"NOT EXISTS (SELECT 1 FROM {tablename} {table_alias})"
-                where_conditions.append(not_exists)
-
-        # Build SELECT clause - use original variable names if this is the final query
-        select_exprs = []
-        for i, var_name in enumerate(select_cols):
-            if var_name in var_map:
-                if is_cte:
-                    # For CTEs, use standardized column names
-                    select_exprs.append(f"{var_map[var_name]} AS c{i}")
-                else:
-                    # For final query, use original variable names as aliases
-                    col_ref = var_map[var_name]
-                    select_exprs.append(f"{col_ref} AS {var_name}")
+                            if var_map[var_name] != col_ref:
+                                other_ref = var_map[var_name]
+                                if '.' in other_ref and other_ref.split('.')[0] != table_alias:
+                                    join_conditions.append(f"{col_ref} = {other_ref}")
+                                else:
+                                    filter_conditions.append(f"{col_ref} = {other_ref}")
+                        elif arg[0] in ('num', 'str'):
+                            filter_conditions.append(f"{col_ref} = {format_sql_value(arg)}")
+            
+            # Comparison conditions
+            for left_arg, op, right_arg in comparison_conditions:
+                left_val = var_map.get(left_arg[1], left_arg[1]) if left_arg[0] == 'var' else format_sql_value(left_arg)
+                right_val = var_map.get(right_arg[1], right_arg[1]) if right_arg[0] == 'var' else format_sql_value(right_arg)
+                filter_conditions.append(f"{left_val} {op} {right_val}")
+            
+            # Build FROM clause
+            if not positive_tables:
+                from_clause = ""
+            elif len(positive_tables) == 1:
+                tablename, table_alias, _, _ = positive_tables[0]
+                from_clause = f"FROM {tablename} {table_alias}"
             else:
-                if is_cte:
-                    select_exprs.append(f"NULL AS c{i}")
+                from_parts = [f"FROM {positive_tables[0][0]} {positive_tables[0][1]}"]
+                used_join_conditions = set()
+                
+                for i in range(1, len(positive_tables)):
+                    tablename, table_alias, _, _ = positive_tables[i]
+                    table_join_condition = None
+                    
+                    for join_cond in join_conditions:
+                        if f"{table_alias}." in join_cond and join_cond not in used_join_conditions:
+                            table_join_condition = join_cond
+                            used_join_conditions.add(join_cond)
+                            break
+                    
+                    if table_join_condition:
+                        from_parts.append(f"JOIN {tablename} {table_alias} ON {table_join_condition}")
+                    else:
+                        from_parts.append(f"CROSS JOIN {tablename} {table_alias}")
+                
+                from_clause = " ".join(from_parts)
+            
+            # Negation conditions (NOT EXISTS)
+            for tablename, table_alias, args, sign, col_names in join_tables:
+                if sign == 'neg':
+                    sub_conditions = []
+                    for i, arg in enumerate(args):
+                        col_ref = f"{table_alias}.{col_names[i]}"
+                        if arg[0] == 'var' and arg[1] != '_' and arg[1] in var_map:
+                            sub_conditions.append(f"{col_ref} = {var_map[arg[1]]}")
+                        elif arg[0] in ('num', 'str'):
+                            sub_conditions.append(f"{col_ref} = {format_sql_value(arg)}")
+                    
+                    if sub_conditions:
+                        not_exists = f"NOT EXISTS (SELECT 1 FROM {tablename} {table_alias} WHERE {' AND '.join(sub_conditions)})"
+                    else:
+                        not_exists = f"NOT EXISTS (SELECT 1 FROM {tablename} {table_alias})"
+                    filter_conditions.append(not_exists)
+            
+            # Build SELECT clause
+            select_exprs = []
+            for i, var_name in enumerate(select_cols):
+                if var_name in var_map:
+                    if is_cte:
+                        select_exprs.append(f"{var_map[var_name]} AS c{i}")
+                    else:
+                        select_exprs.append(f"{var_map[var_name]} AS {var_name}")
                 else:
-                    select_exprs.append(f"NULL AS {var_name}")
-
-        # Construct the SQL for this rule
-        select_clause = f"SELECT {', '.join(select_exprs)}"
-        from_clause = f"FROM {', '.join(from_tables)}" if from_tables else ""
-        where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
-
-        rule_sql = f"{select_clause} {from_clause} {where_clause}".strip()
-        rule_sqls.append(rule_sql)
-
-    # Union all rules for this predicate
-    if len(rule_sqls) == 1:
-        union_sql = rule_sqls[0]
-    else:
-        union_sql = "\nUNION\n".join(rule_sqls)
-
-    return union_sql
-
-
-def format_comparison_operand(arg, var_map):
-    """Format an operand in a comparison, handling variables and constants."""
-    if arg[0] == 'var':
-        if arg[1] in var_map:
-            return var_map[arg[1]]
+                    if is_cte:
+                        select_exprs.append(f"NULL AS c{i}")
+                    else:
+                        select_exprs.append(f"NULL AS {var_name}")
+            
+            # Construct the SQL for this rule
+            select_clause = f"SELECT {', '.join(select_exprs)}"
+            where_clause = f"WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ""
+            rule_sql = f"{select_clause} {from_clause} {where_clause}".strip()
+            rule_sqls.append(rule_sql)
+        
+        # Union all rules for this predicate
+        if len(rule_sqls) == 1:
+            return rule_sqls[0]
         else:
-            return arg[1]  # Unbound variable, use as-is
+            return "\nUNION\n".join(rule_sqls)
+    
+    # Generate CTE definitions
+    cte_parts = []
+    for p in ordered_preds:
+        if p != pred:  # Don't include the target predicate in CTEs
+            cte_sql = gen_pred_sql(p, use_cte_names=True, is_cte=True)
+            cte_parts.append(f"{p} AS (\n{cte_sql}\n)")
+    
+    # Generate the main query for the target predicate
+    main_sql = gen_pred_sql(pred, use_cte_names=True, is_cte=False)
+    
+    # Combine CTEs and main query
+    if cte_parts:
+        return f"WITH {',\n'.join(cte_parts)}\n{main_sql}"
     else:
-        return format_sql_value(arg)
+        return main_sql
 
 
 def main():
@@ -512,7 +512,7 @@ def main():
                             print(pred_list)
                             sql_dict = {}
                             for pred in pred_list:
-                                sql_query = generate_sql(pred, pred_dict, db)
+                                sql_query = generate_sql(pred, pred_dict, db, rules)
                                 print(f"SQL for {pred}:")
                                 print(sql_query)
                                 sql_dict[pred] = sql_query

@@ -268,65 +268,10 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
         db_path = os.path.join(DB_FOLDER, db_file)
         db = SQLite3()
         db.open(db_path)
-        sql = None
 
-        # Check if EDB node (not in pred_dict)
-        if pred_name not in pred_dict:
-            col_names = db.getAttributes(pred_name)
-            filter_clauses = []
-            var_aliases = {}  # Map column indices to variable names
-
-            # Go through all rules and collect relevant filters and variable mappings
-            for rule in parsed_data['rules']:
-                _, body = rule
-                for lit in body:
-                    if lit[1][0] == 'regular' and lit[1][1] == pred_name:
-                        # Map variables to column indices for this predicate
-                        for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
-                                var_aliases[idx] = arg[1]
-                            elif arg[0] in ('num', 'str'):
-                                # Constants in EDB predicate
-                                filter_clauses.append(
-                                    f"{col_names[idx]} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
-
-                        # Map variables in this literal to columns for comparisons
-                        var_map = {}
-                        for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
-                                var_map[arg[1]] = col_names[idx]
-
-                        # Now look for comparisons in the same body that use these variables
-                        for comp_lit in body:
-                            if comp_lit[1][0] == 'comparison':
-                                left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
-                                # If left or right is a var in this EDB literal, add comparison
-                                comp = None
-                                if left[0] == 'var' and left[1] in var_map:
-                                    col = var_map[left[1]]
-                                    val = right[1] if right[0] == 'num' else (
-                                        f"'{right[1]}'" if right[0] == 'str' else right[1])
-                                    comp = f"{col} {op} {val}"
-                                elif right[0] == 'var' and right[1] in var_map:
-                                    col = var_map[right[1]]
-                                    val = left[1] if left[0] == 'num' else (
-                                        f"'{left[1]}'" if left[0] == 'str' else left[1])
-                                    comp = f"{val} {op} {col}"
-                                if comp:
-                                    filter_clauses.append(comp)
-
-            # Build SELECT clause with variable aliases
-            select_parts = []
-            for idx, col_name in enumerate(col_names):
-                if idx in var_aliases:
-                    select_parts.append(f"{col_name} AS {var_aliases[idx]}")
-                else:
-                    select_parts.append(col_name)
-
-            where_sql = f" WHERE {' AND '.join(filter_clauses)}" if filter_clauses else ''
-            sql = f"SELECT {', '.join(select_parts)} FROM {pred_name}{where_sql}"
-        else:
-            sql = generate_sql(pred_name, pred_dict, db=db)
+        # Use the unified generate_sql function for all predicates (both EDB and IDB)
+        sql = generate_sql(pred_name, pred_dict, db=db,
+                           rules=parsed_data['rules'])
 
         # Execute SQL and get results
         conn = sqlite3.connect(db_path)
