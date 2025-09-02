@@ -452,7 +452,8 @@ def generate_sql(pred, pred_dict, db=None, rules=None):
     main_sql = gen_pred_sql(pred, use_cte_names=True, is_cte=False)
     
     if cte_parts:
-        return f"WITH {',\n'.join(cte_parts)}\n{main_sql}"
+        cte_clause = ',\n'.join(cte_parts)
+        return f"WITH {cte_clause}\n{main_sql}"
     else:
         return main_sql
 
