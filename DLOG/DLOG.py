@@ -232,36 +232,65 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
                 elif arg[0] in ('num', 'str'):
                     select_parts.append(col_name)
                     filter_conditions.append(
-                        f"{col_name} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
+                        f"{col_name} = {format_sql_value(arg)}")
 
         if not select_parts:
             select_parts = col_names
 
         if rules and target_args:
+            # Find all rules that contain this predicate with these specific arguments
             for rule in rules:
                 _, body = rule
                 target_literal = None
                 for lit in body:
-                    if lit[1][0] == 'regular' and lit[1][1] == pred and lit[1][2] == target_args:
-                        target_literal = lit
-                        break
+                    if (lit[1][0] == 'regular' and lit[1][1] == pred and 
+                        len(lit[1][2]) == len(target_args)):
+                        # Check if this literal matches our target arguments pattern
+                        args_match = True
+                        for i, (target_arg, lit_arg) in enumerate(zip(target_args, lit[1][2])):
+                            if (target_arg[0] == 'var' and target_arg[1] != '_' and
+                                lit_arg[0] == 'var' and lit_arg[1] != '_' and
+                                target_arg[1] != lit_arg[1]):
+                                args_match = False
+                                break
+                            elif (target_arg[0] in ('num', 'str') and 
+                                  (lit_arg[0] != target_arg[0] or lit_arg[1] != target_arg[1])):
+                                args_match = False
+                                break
+                            elif target_arg[0] == 'var' and target_arg[1] == '_' and lit_arg[0] == 'var':
+                                continue  # Underscore matches any variable
+                        
+                        if args_match:
+                            target_literal = lit
+                            break
 
                 if target_literal:
+                    # Build variable mapping from this literal's arguments
                     var_map = {}
-                    for idx, arg in enumerate(target_args):
+                    for idx, arg in enumerate(target_literal[1][2]):
                         if arg[0] == 'var' and arg[1] and arg[1] != '_' and idx < len(col_names):
                             var_map[arg[1]] = col_names[idx]
 
+                    # Find comparison conditions that involve variables from this predicate
                     for comp_lit in body:
                         if comp_lit[1][0] == 'comparison':
                             left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
-                            if (left[0] == 'var' and left[1] in var_map) or (right[0] == 'var' and right[1] in var_map):
-                                left_val = var_map.get(left[1], left[1]) if left[0] == 'var' else (
-                                    left[1] if left[0] == 'num' else repr(left[1]))
-                                right_val = var_map.get(right[1], right[1]) if right[0] == 'var' else (
-                                    right[1] if right[0] == 'num' else repr(right[1]))
-                                filter_conditions.append(
-                                    f"{left_val} {op} {right_val}")
+                            
+                            # Check if either side of the comparison involves our predicate's variables
+                            left_is_our_var = (left[0] == 'var' and left[1] in var_map)
+                            right_is_our_var = (right[0] == 'var' and right[1] in var_map)
+                            
+                            if left_is_our_var or right_is_our_var:
+                                # Build the condition string
+                                left_val = var_map.get(left[1], left[1]) if left[0] == 'var' else format_sql_value(left)
+                                right_val = var_map.get(right[1], right[1]) if right[0] == 'var' else format_sql_value(right)
+                                
+                                condition = f"{left_val} {op} {right_val}"
+                                if condition not in filter_conditions:
+                                    filter_conditions.append(condition)
+                    
+                    # Once we find a matching rule, we can break
+                    break
 
         where_clause = f" WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ''
         return f"SELECT {', '.join(select_parts)} FROM {pred}{where_clause}"

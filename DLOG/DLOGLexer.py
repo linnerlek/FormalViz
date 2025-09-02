@@ -27,7 +27,14 @@ class DLOGLexer:
 
   def t_NUMBER(self, t):
     r'[-+]?[0-9]+(\.([0-9]+)+)?'
-    t.value = float(t.value)
+    if '.' in t.value:
+
+      t.value = float(t.value)
+
+    else:
+
+      t.value = int(t.value)
+
     t.type = 'NUMBER'
     return t
 

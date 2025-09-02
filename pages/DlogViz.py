@@ -769,6 +769,10 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
             if len(parts) >= 2 and parts[-1].isdigit():
                 # Format: node_predicate_instance
                 pred_name = '_'.join(parts[:-1])
+            elif parts[0] == 'comp':
+                # This is a comparison node
+                path_nodes.add(node_id)
+                return
             else:
                 # Format: node_predicate
                 pred_name = '_'.join(parts)
@@ -786,13 +790,13 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
         if not pred_name:
             return
 
-        # If this is an EDB node (not in pred_dict), it's a fact
-        if pred_name not in pred_dict:
-            path_nodes.add(node_id)
-            return
-
-        # If this is an IDB node, add it to path and explore dependencies
+        # Add this node to the path
         path_nodes.add(node_id)
+
+        # If this is an EDB node (not in pred_dict), it's a fact - still explore connections
+        if pred_name not in pred_dict:
+            # For EDB nodes, also find connected comparison conditions
+            find_connected_comparisons(node_id)
 
         # Find all edges starting from this node
         for element in graph_elements:
@@ -802,9 +806,9 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
                     target_id = edge_data['target']
                     path_edges.add(edge_data['id'])
 
-                    # If target is an intermediate node (and, negation indicator), add it and continue
+                    # If target is an intermediate node (and, negation indicator, comparison), add it and continue
                     if (target_id.startswith('and_') or target_id.startswith('neg_indicator_') or
-                            target_id.startswith('comp_')):
+                            target_id.startswith('node_comp_')):
                         path_nodes.add(target_id)
 
                         # Find edges from this intermediate node
@@ -818,7 +822,24 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
                         # Direct target node
                         dfs(target_id)
 
+    def find_connected_comparisons(predicate_node_id):
+        """Find comparison nodes connected to a specific predicate node"""
+        for element in graph_elements:
+            if 'data' in element and 'source' in element['data']:
+                edge_data = element['data']
+                if edge_data['source'] == predicate_node_id and edge_data['target'].startswith('node_comp_'):
+                    # This predicate is connected to a comparison condition
+                    comp_node_id = edge_data['target']
+                    path_nodes.add(comp_node_id)
+                    path_edges.add(edge_data['id'])
+
     dfs(start_node)
+    
+    # After building the main path, find all comparison conditions connected to any predicate in the path
+    predicates_in_path = [node for node in path_nodes if not node.startswith(('and_', 'neg_indicator_', 'node_comp_'))]
+    for pred_node in predicates_in_path:
+        find_connected_comparisons(pred_node)
+    
     return list(path_nodes), list(path_edges)
 
 
