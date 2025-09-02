@@ -64,6 +64,42 @@ dlog_cytoscape_stylesheet = [
         }
     },
     {
+        'selector': '.and-node',
+        'style': {
+            'background-color': '#FFFFFF',
+            'border-width': 3,
+            'border-color': '#0071CE',
+            'shape': 'ellipse',
+            'width': 30,
+            'height': 30,
+            'font-size': '16px',
+            'color': '#0071CE',
+            'font-weight': 'bold',
+            'text-outline-width': 0,
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'text-margin-y': 0
+        }
+    },
+    {
+        'selector': '.neg-node',
+        'style': {
+            'background-color': '#FFFFFF',
+            'border-width': 3,
+            'border-color': '#E74C3C',
+            'shape': 'ellipse',
+            'width': 30,
+            'height': 30,
+            'font-size': '16px',
+            'color': '#E74C3C',
+            'font-weight': 'bold',
+            'text-outline-width': 0,
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'text-margin-y': 0
+        }
+    },
+    {
         'selector': '.answer-node',
         'style': {
             'background-color': '#E74C3C',
@@ -162,14 +198,33 @@ layout = html.Div([
                 cyto.Cytoscape(
                     id='datalog-graph',
                     layout={
-                        'name': 'breadthfirst',
-                        'directed': True,
+                        'name': 'dagre',
+                        'rankDir': 'TB',  # Top to Bottom
+                        'nodeSep': 60,    # Horizontal spacing between nodes
+                        'edgeSep': 30,    # Spacing between edges
+                        'rankSep': 100,   # Vertical spacing between levels
                         'roots': '[id = "node_answer"]',
-                        'spacingFactor': 1.5,
                         'animate': False
                     },
                     elements=[],
-                    stylesheet=dlog_cytoscape_stylesheet,
+                    stylesheet=dlog_cytoscape_stylesheet + [
+                        {
+                            'selector': 'edge',
+                            'style': {
+                                'curve-style': 'taxi',
+                                'taxi-direction': 'downward',
+                                'taxi-turn': 45,
+                                'taxi-turn-min-distance': 20,
+                                'taxi-turn-max-distance': 80,
+                                'width': 3,
+                                'line-color': '#778899',
+                                'target-arrow-shape': 'triangle',
+                                'target-arrow-color': '#778899',
+                                'arrow-scale': 1.5,
+                                'edge-text-rotation': 'autorotate'
+                            }
+                        }
+                    ],
                     userZoomingEnabled=True,
                     userPanningEnabled=True,
                     minZoom=0.5,
@@ -256,10 +311,29 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
     pred_name = node_data['label'].split('\n')[0]
     pred_dict = parsed_data['pred_dict']
 
-    # If this is a comparison node, just explain it
-    if node_data.get('type') == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
+    # Handle special node types (and, neg, comparison)
+    node_type = node_data.get('type', '')
+
+    if node_type == 'and':
         return html.Div([
-            html.P("This is a comparison/condition node. It does not produce data directly, but applies a condition to its connected predicates.",
+            html.P("This is an AND node.", style={"fontWeight": "bold"}),
+            html.P("It represents that ALL connected predicates must be satisfied simultaneously for the rule to be true.",
+                   style={"fontStyle": "italic"})
+        ]), 0
+
+    if node_type == 'neg':
+        return html.Div([
+            html.P("This is a NEGATION node.", style={"fontWeight": "bold"}),
+            html.P("It represents that the connected predicate must NOT be true for the rule to be satisfied.",
+                   style={"fontStyle": "italic"})
+        ]), 0
+
+    # If this is a comparison node, just explain it
+    if node_type == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
+        return html.Div([
+            html.P("This is a comparison/condition node.",
+                   style={"fontWeight": "bold"}),
+            html.P("It does not produce data directly, but applies a condition to its connected predicates.",
                    style={"fontStyle": "italic"}),
             html.P(f"Condition: {node_data['label']}")
         ]), 0
@@ -648,7 +722,7 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
         for head, body in rules:
             head_name = head[1]
             pred_contents.setdefault(head_name, [])
-            for _, pred in body:
+            for sign, pred in body:
                 if pred[0] == 'regular':
                     pred_name = pred[1]
                     pred_contents.setdefault(pred_name, [])
@@ -662,13 +736,13 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     edb_preds = [p for p in all_body_preds if p not in pred_dict]
     answer_pred = next((p for p in pred_dict if p.lower() == 'answer'), None)
 
-    def add_node(pred, node_type, classes):
-        label = pred
+    def add_node(pred, node_type, classes, custom_id=None, label_override=None):
+        label = label_override if label_override is not None else pred
         if pred in pred_contents and pred_contents[pred]:
             label += f"\n({', '.join(pred_contents[pred])})"
         elements.append({
             'data': {
-                'id': f"node_{pred}",
+                'id': custom_id if custom_id else f"node_{pred}",
                 'label': label,
                 'type': node_type,
                 'arity': len(pred_dict[pred][0]) if pred in pred_dict else None,
@@ -677,6 +751,8 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             },
             'classes': classes
         })
+
+    # Add main predicate nodes
     if answer_pred:
         add_node(answer_pred, 'idb', 'answer-node')
     for pred in pred_dict:
@@ -684,20 +760,70 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             add_node(pred, 'idb', 'idb-node')
     for pred in edb_preds:
         add_node(pred, 'edb', 'edb-node')
-    # Use a set to track unique edges (source, target) to avoid duplicates
+
+    # Build edges and AND/NEG nodes
     edge_set = set()
+    and_counter = 0
+    neg_counter = 0
     for head in dgraph:
+        # Find the rule for this head (if available)
+        rule_bodies = []
+        if rules:
+            for h, body in rules:
+                if h[1] == head:
+                    rule_bodies.append(body)
+        else:
+            rule_bodies = [[]]
+
         for body in dgraph[head]:
-            edge = (f"node_{head}", f"node_{body}")
-            if edge not in edge_set:
-                edge_set.add(edge)
-                elements.append({
-                    'data': {
-                        'id': f"edge_{head}_{body}",
-                        'source': edge[0],
-                        'target': edge[1]
-                    }
-                })
+            # Find if this body is negated in any rule for this head
+            is_neg = False
+            for rule_body in rule_bodies:
+                for sign, pred in rule_body:
+                    if pred[0] == 'regular' and pred[1] == body and sign == 'neg':
+                        is_neg = True
+            if is_neg:
+                # Insert a neg node between head and body
+                neg_id = f"neg_{neg_counter}_{head}_{body}"
+                neg_counter += 1
+                add_node('neg', 'neg', 'neg-node',
+                         custom_id=neg_id, label_override='not')
+                edge1 = (f"node_{head}", neg_id)
+                edge2 = (neg_id, f"node_{body}")
+                if edge1 not in edge_set:
+                    edge_set.add(edge1)
+                    elements.append(
+                        {'data': {'id': f"edge_{head}_{neg_id}", 'source': edge1[0], 'target': edge1[1]}})
+                if edge2 not in edge_set:
+                    edge_set.add(edge2)
+                    elements.append(
+                        {'data': {'id': f"edge_{neg_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
+            else:
+                # If there are multiple bodies, insert an AND node
+                if len(dgraph[head]) > 1:
+                    and_id = f"and_{and_counter}_{head}"
+                    if not any(e['data']['id'] == and_id for e in elements):
+                        add_node('and', 'and', 'and-node',
+                                 custom_id=and_id, label_override='and')
+                        and_counter += 1
+                    edge1 = (f"node_{head}", and_id)
+                    edge2 = (and_id, f"node_{body}")
+                    if edge1 not in edge_set:
+                        edge_set.add(edge1)
+                        elements.append(
+                            {'data': {'id': f"edge_{head}_{and_id}", 'source': edge1[0], 'target': edge1[1]}})
+                    if edge2 not in edge_set:
+                        edge_set.add(edge2)
+                        elements.append(
+                            {'data': {'id': f"edge_{and_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
+                else:
+                    edge = (f"node_{head}", f"node_{body}")
+                    if edge not in edge_set:
+                        edge_set.add(edge)
+                        elements.append(
+                            {'data': {'id': f"edge_{head}_{body}", 'source': edge[0], 'target': edge[1]}})
+
+    # Add comparison nodes and edges as before
     created_comparisons = {}
     for pred_name, conditions in comparison_conditions.items():
         for condition in conditions:
