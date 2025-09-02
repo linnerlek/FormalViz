@@ -710,11 +710,30 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
             return
         visited_nodes.add(node_id)
 
-        # Extract predicate name from node_id (remove "node_" prefix)
+        # Extract predicate name from node_id 
+        # Handle new format: node_predicate_instance or node_predicate
+        pred_name = None
         if node_id.startswith("node_"):
-            pred_name = node_id[5:]  # Remove "node_" prefix
+            parts = node_id[5:].split('_')  # Remove "node_" prefix
+            if len(parts) >= 2 and parts[-1].isdigit():
+                # Format: node_predicate_instance
+                pred_name = '_'.join(parts[:-1])
+            else:
+                # Format: node_predicate
+                pred_name = '_'.join(parts)
         else:
             pred_name = node_id
+
+        # Get predicate name from node data if extraction fails
+        if not pred_name:
+            for element in graph_elements:
+                if ('data' in element and element['data'].get('id') == node_id and 
+                    'predicate_name' in element['data']):
+                    pred_name = element['data']['predicate_name']
+                    break
+
+        if not pred_name:
+            return
 
         # If this is an EDB node (not in pred_dict), it's a fact
         if pred_name not in pred_dict:
@@ -724,31 +743,29 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
         # If this is an IDB node, add it to path and explore dependencies
         path_nodes.add(node_id)
 
-        if pred_name in dgraph:
-            for dependency in dgraph[pred_name]:
-                dep_node_id = f"node_{dependency}"
-
-                # Find the actual edges in the graph elements
-                for element in graph_elements:
-                    if 'data' in element and 'source' in element['data']:
-                        edge_data = element['data']
-                        # Check if this edge connects our current node to the dependency
-                        if (edge_data['source'] == node_id and edge_data['target'] == dep_node_id) or \
-                           (edge_data['source'] == node_id and edge_data['target'].startswith('and_')) or \
-                           (edge_data['source'] == node_id and edge_data['target'].startswith('neg_')):
-                            path_edges.add(edge_data['id'])
-
-                            # If it's an intermediate node, also add the node and continue the chain
-                            if edge_data['target'].startswith('and_') or edge_data['target'].startswith('neg_'):
-                                path_nodes.add(edge_data['target'])
-                                # Find the next edge from this intermediate node
-                                for next_element in graph_elements:
-                                    if 'data' in next_element and 'source' in next_element['data']:
-                                        next_edge = next_element['data']
-                                        if next_edge['source'] == edge_data['target']:
-                                            path_edges.add(next_edge['id'])
-
-                dfs(dep_node_id)
+        # Find all edges starting from this node
+        for element in graph_elements:
+            if 'data' in element and 'source' in element['data']:
+                edge_data = element['data']
+                if edge_data['source'] == node_id:
+                    target_id = edge_data['target']
+                    path_edges.add(edge_data['id'])
+                    
+                    # If target is an intermediate node (and, negation indicator), add it and continue
+                    if (target_id.startswith('and_') or target_id.startswith('neg_indicator_') or 
+                        target_id.startswith('comp_')):
+                        path_nodes.add(target_id)
+                        
+                        # Find edges from this intermediate node
+                        for next_element in graph_elements:
+                            if 'data' in next_element and 'source' in next_element['data']:
+                                next_edge = next_element['data']
+                                if next_edge['source'] == target_id:
+                                    path_edges.add(next_edge['id'])
+                                    dfs(next_edge['target'])
+                    else:
+                        # Direct target node
+                        dfs(target_id)
 
     dfs(start_node)
     return list(path_nodes), list(path_edges)
