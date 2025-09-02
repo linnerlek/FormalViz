@@ -58,9 +58,6 @@ dlog_cytoscape_stylesheet = [
             'text-justification': 'center',
             'min-height': 60,
             'background-color': '#0071CE',
-            'text-outline-width': 2,
-            'text-outline-color': '#FFFFFF',
-            'text-outline-opacity': 1
         }
     },
     {
@@ -89,8 +86,8 @@ dlog_cytoscape_stylesheet = [
             'border-width': 2,
             'border-color': '#922B21',
             'shape': 'rectangle',
-            'width': 40,
-            'height': 20,
+            'width': 30,
+            'height': 6,
             'font-size': '12px',
             'color': '#FFFFFF',
             'font-weight': 'bold',
@@ -155,7 +152,7 @@ dlog_cytoscape_stylesheet = [
     {
         'selector': ':selected',
         'style': {
-            'background-color': '#CC0000',
+            'background-color': "#FFE20A",
             'font-weight': 'bold',
         }
     }
@@ -228,6 +225,7 @@ layout = html.Div([
                     ],
                     userZoomingEnabled=True,
                     userPanningEnabled=True,
+                    autoungrabify=True,
                     minZoom=0.5,
                     maxZoom=2.0
                 ),
@@ -307,11 +305,9 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
-    # Extract predicate name from node data
     node_id = node_data['id']
     pred_name = node_data.get('predicate_name', '')
     if not pred_name:
-        # Extract from label if predicate_name not available
         full_label = node_data['label'].split('\n')[0]
         if '(' in full_label:
             pred_name = full_label.split('(')[0]
@@ -321,7 +317,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
     pred_dict = parsed_data['pred_dict']
     node_type = node_data.get('type', '')
 
-    # Check if this node is negated by looking for a negation indicator
     is_negated = False
     if graph_elements:
         for element in graph_elements:
@@ -357,7 +352,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
             html.P(f"Condition: {node_data['label']}")
         ]), 0
 
-    # Special handling for negated nodes
     if is_negated:
         return html.Div([
             html.P("This is a NEGATED predicate.", style={
@@ -376,16 +370,13 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
         db = SQLite3()
         db.open(db_path)
 
-        # Extract specific arguments from the node data for EDB predicates
         specific_args = None
         if pred_name not in parsed_data['pred_dict']:
-            # This is an EDB predicate, extract the specific arguments from the node label
             full_label = node_data['label'].split('\n')[0]
             if '(' in full_label and ')' in full_label:
                 args_str = full_label[full_label.index(
                     '(')+1:full_label.rindex(')')]
                 if args_str.strip():
-                    # Parse the arguments from the label
                     arg_parts = [arg.strip() for arg in args_str.split(',')]
                     specific_args = []
                     for arg_part in arg_parts:
@@ -504,7 +495,6 @@ def update_datalog_page(prev_clicks, next_clicks, node_data, submit_clicks,
     return new_page, prev_clicks, next_clicks
 
 
-# Position negation indicators above their corresponding nodes
 clientside_callback(
     """
     function(elements) {
@@ -604,6 +594,30 @@ clientside_callback(
     [Output("datalog-prev-page-btn", "style"),
      Output("datalog-next-page-btn", "style")],
     [Input("datalog-row-count", "data")]
+)
+
+# Center the graph when new elements are loaded
+clientside_callback(
+    """
+    function(elements) {
+        if (!elements || elements.length === 0) {
+            return window.dash_clientside.no_update;
+        }
+        
+        // Use the globally available centering function
+        if (window.centerDatalogGraph) {
+            // Add a small delay to ensure layout is complete
+            setTimeout(function() {
+                window.centerDatalogGraph();
+            }, 200);
+        }
+        
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('datalog-graph', 'className'),
+    [Input('datalog-graph', 'elements')],
+    prevent_initial_call=True
 )
 
 

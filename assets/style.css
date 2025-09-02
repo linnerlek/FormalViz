@@ -591,7 +591,7 @@ details summary {
 
 /* Datalog Cytoscape Styling */
 #datalog-graph {
-  flex: 1;
+  flex: 2;
   height: 100% !important;
   width: 100% !important;
   border: 1px solid #ccc;

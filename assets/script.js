@@ -186,7 +186,9 @@ document.addEventListener(
 function initializeDatalogTreeTableResizableDivider() {
   const divider = document.getElementById("datalog-tree-table-divider");
   const treeSection = document.getElementById("datalog-graph");
-  const tableSection = document.querySelector(".datalog-tree-table-container .table-and-pagination");
+  const tableSection = document.querySelector(
+    ".datalog-tree-table-container .table-and-pagination"
+  );
   const container = document.querySelector(".datalog-tree-table-container");
 
   if (!divider || !treeSection || !tableSection || !container) {
@@ -212,21 +214,29 @@ function initializeDatalogTreeTableResizableDivider() {
 
     if (leftWidth >= 100 && leftWidth <= containerWidth - 100) {
       // Use width and flex: none instead of flex-basis
-      treeSection.style.setProperty('flex', 'none', 'important');
-      treeSection.style.setProperty('width', `${leftWidth - dividerWidth/2}px`, 'important');
-      
+      treeSection.style.setProperty("flex", "none", "important");
+      treeSection.style.setProperty(
+        "width",
+        `${leftWidth - dividerWidth / 2}px`,
+        "important"
+      );
+
       // Keep divider visible and fixed
-      divider.style.setProperty('flex', 'none', 'important');
-      divider.style.setProperty('width', `${dividerWidth}px`, 'important');
-      divider.style.setProperty('order', '1', 'important');
-      
-      tableSection.style.setProperty('flex', 'none', 'important');
-      tableSection.style.setProperty('width', `${containerWidth - leftWidth - dividerWidth/2}px`, 'important');
-      tableSection.style.setProperty('order', '2', 'important');
-      
+      divider.style.setProperty("flex", "none", "important");
+      divider.style.setProperty("width", `${dividerWidth}px`, "important");
+      divider.style.setProperty("order", "1", "important");
+
+      tableSection.style.setProperty("flex", "none", "important");
+      tableSection.style.setProperty(
+        "width",
+        `${containerWidth - leftWidth - dividerWidth / 2}px`,
+        "important"
+      );
+      tableSection.style.setProperty("order", "2", "important");
+
       // Trigger cytoscape resize and re-center after a short delay
       setTimeout(() => {
-        const cyElement = document.getElementById('datalog-graph');
+        const cyElement = document.getElementById("datalog-graph");
         if (cyElement && cyElement._cyreg && cyElement._cyreg.cy) {
           const cy = cyElement._cyreg.cy;
           cy.resize();
@@ -238,19 +248,23 @@ function initializeDatalogTreeTableResizableDivider() {
   });
 
   document.addEventListener("mouseup", () => {
+    // Only center if we were actually dragging the divider
+    const wasDragging = isDragging;
     isDragging = false;
     document.body.style.cursor = "default";
-    
-    // Final resize and center after dragging is complete
-    setTimeout(() => {
-      const cyElement = document.getElementById('datalog-graph');
-      if (cyElement && cyElement._cyreg && cyElement._cyreg.cy) {
-        const cy = cyElement._cyreg.cy;
-        cy.resize();
-        cy.fit();
-        cy.center();
-      }
-    }, 100);
+
+    // Final resize and center after divider dragging is complete
+    if (wasDragging) {
+      setTimeout(() => {
+        const cyElement = document.getElementById("datalog-graph");
+        if (cyElement && cyElement._cyreg && cyElement._cyreg.cy) {
+          const cy = cyElement._cyreg.cy;
+          cy.resize();
+          cy.fit();
+          cy.center();
+        }
+      }, 100);
+    }
   });
 }
 
@@ -258,3 +272,20 @@ document.addEventListener(
   "DOMContentLoaded",
   initializeDatalogTreeTableResizableDivider
 );
+
+// Function to center and fit the datalog graph
+function centerDatalogGraph() {
+  const cyElement = document.getElementById("datalog-graph");
+  if (cyElement && cyElement._cyreg && cyElement._cyreg.cy) {
+    const cy = cyElement._cyreg.cy;
+    // Use a short timeout to ensure elements are rendered
+    setTimeout(() => {
+      cy.resize();
+      cy.fit();
+      cy.center();
+    }, 100);
+  }
+}
+
+// Make the function globally available for Dash callbacks
+window.centerDatalogGraph = centerDatalogGraph;
