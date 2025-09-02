@@ -82,16 +82,16 @@ dlog_cytoscape_stylesheet = [
         }
     },
     {
-        'selector': '.neg-node',
+        'selector': '.neg-indicator',
         'style': {
-            'background-color': '#FFFFFF',
-            'border-width': 3,
-            'border-color': '#E74C3C',
-            'shape': 'ellipse',
-            'width': 30,
-            'height': 30,
-            'font-size': '16px',
-            'color': '#E74C3C',
+            'background-color': '#E74C3C',
+            'border-width': 2,
+            'border-color': '#922B21',
+            'shape': 'rectangle',
+            'width': 40,
+            'height': 20,
+            'font-size': '12px',
+            'color': '#FFFFFF',
             'font-weight': 'bold',
             'text-outline-width': 0,
             'text-valign': 'center',
@@ -297,10 +297,11 @@ layout = html.Div([
     [Input('datalog-graph', 'tapNodeData'),
      Input('datalog-current-page', 'data')],
     [State('datalog-parsed-data', 'data'),
-     State('datalog-db-dropdown', 'value')],
+     State('datalog-db-dropdown', 'value'),
+     State('datalog-graph', 'elements')],
     prevent_initial_call=True
 )
-def show_node_data(node_data, current_page, parsed_data, db_file):
+def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements):
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
@@ -314,6 +315,16 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
     pred_dict = parsed_data['pred_dict']
     node_type = node_data.get('type', '')
 
+    # Check if this node is negated by looking for a negation indicator
+    is_negated = False
+    if graph_elements:
+        for element in graph_elements:
+            if ('data' in element and 
+                element.get('data', {}).get('type') == 'neg_indicator' and
+                element.get('data', {}).get('parent_pred') == pred_name):
+                is_negated = True
+                break
+
     if node_type == 'and':
         return html.Div([
             html.P("This is an AND node.", style={"fontWeight": "bold"}),
@@ -321,11 +332,13 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
                    style={"fontStyle": "italic"})
         ]), 0
 
-    if node_type == 'neg':
+    if node_type == 'neg_indicator':
+        parent_pred = node_data.get('parent_pred', 'unknown')
         return html.Div([
-            html.P("This is a NEGATION node.", style={"fontWeight": "bold"}),
-            html.P("It represents that the connected predicate must NOT be true for the rule to be satisfied.",
-                   style={"fontStyle": "italic"})
+            html.P("This is a NEGATION indicator.", style={"fontWeight": "bold"}),
+            html.P(f"It indicates that predicate '{parent_pred}' is negated in the rule.",
+                   style={"fontStyle": "italic"}),
+            html.P("The predicate must NOT be true for the rule to be satisfied.")
         ]), 0
 
     if node_type == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
@@ -335,6 +348,19 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
             html.P("It does not produce data directly, but applies a condition to its connected predicates.",
                    style={"fontStyle": "italic"}),
             html.P(f"Condition: {node_data['label']}")
+        ]), 0
+
+    # Special handling for negated nodes
+    if is_negated:
+        return html.Div([
+            html.P("This is a NEGATED predicate.", style={"fontWeight": "bold", "color": "#E74C3C"}),
+            html.P("Negated predicates represent the complement of the original relation.",
+                   style={"fontStyle": "italic"}),
+            html.P("In theory, this would contain all possible tuples that are NOT in the original relation, "
+                   "which could be infinite in an open-world assumption.",
+                   style={"fontStyle": "italic", "color": "#666"}),
+            html.P("Therefore, no data or SQL query is displayed for negated predicates.",
+                   style={"fontWeight": "bold", "color": "#E74C3C"})
         ]), 0
 
     try:
@@ -446,6 +472,45 @@ def update_datalog_page(prev_clicks, next_clicks, node_data, submit_clicks,
 
     return new_page, prev_clicks, next_clicks
 
+
+# Position negation indicators above their corresponding nodes
+clientside_callback(
+    """
+    function(elements) {
+        if (!elements || elements.length === 0) {
+            return window.dash_clientside.no_update;
+        }
+        
+        // Use setTimeout to ensure the layout has been applied
+        setTimeout(function() {
+            const cy = document.getElementById('datalog-graph')._cyreg.cy;
+            if (!cy) return;
+            
+            // Position negation indicators
+            elements.forEach(function(element) {
+                if (element.classes && element.classes.includes('neg-indicator')) {
+                    const parentPred = element.data.parent_pred;
+                    const parentNode = cy.$('#node_' + parentPred);
+                    const negNode = cy.$('#' + element.data.id);
+                    
+                    if (parentNode.length > 0 && negNode.length > 0) {
+                        const parentPos = parentNode.position();
+                        negNode.position({
+                            x: parentPos.x,
+                            y: parentPos.y - 50
+                        });
+                    }
+                }
+            });
+        }, 200);
+        
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('datalog-graph', 'id'),
+    [Input('datalog-graph', 'elements')],
+    prevent_initial_call=True
+)
 
 # show/hide pagination buttons
 clientside_callback(
@@ -817,6 +882,14 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     comparison_conditions = extract_comparison_conditions(
         rules) if rules else {}
 
+    # Track which predicates are negated
+    negated_predicates = set()
+    if rules:
+        for head, body in rules:
+            for sign, pred in body:
+                if pred[0] == 'regular' and sign == 'neg':
+                    negated_predicates.add(pred[1])
+
     edb_variables = {}
     if rules:
         for head, body in rules:
@@ -826,7 +899,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 if pred[0] == 'regular':
                     pred_name = pred[1]
                     pred_contents.setdefault(pred_name, [])
-
 
                     if pred_name not in pred_dict:
                         if pred_name not in edb_variables:
@@ -890,6 +962,19 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             'classes': classes
         })
 
+    # Add negation indicators as separate nodes positioned above negated predicates
+    def add_negation_indicator(pred):
+        neg_id = f"neg_indicator_{pred}"
+        elements.append({
+            'data': {
+                'id': neg_id,
+                'label': 'NOT',
+                'type': 'neg_indicator',
+                'parent_pred': pred
+            },
+            'classes': 'neg-indicator'
+        })
+
     if answer_pred:
         add_node(answer_pred, 'idb', 'answer-node')
     for pred in pred_dict:
@@ -897,10 +982,13 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             add_node(pred, 'idb', 'idb-node')
     for pred in edb_preds:
         add_node(pred, 'edb', 'edb-node')
+        
+    # Add negation indicators for negated predicates
+    for pred in negated_predicates:
+        add_negation_indicator(pred)
 
     edge_set = set()
     and_counter = 0
-    neg_counter = 0
     for head in dgraph:
         rule_bodies = []
         if rules:
@@ -911,49 +999,29 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             rule_bodies = [[]]
 
         for body in dgraph[head]:
-            is_neg = False
-            for rule_body in rule_bodies:
-                for sign, pred in rule_body:
-                    if pred[0] == 'regular' and pred[1] == body and sign == 'neg':
-                        is_neg = True
-            if is_neg:
-                neg_id = f"neg_{neg_counter}_{head}_{body}"
-                neg_counter += 1
-                add_node('neg', 'neg', 'neg-node',
-                         custom_id=neg_id, label_override='not')
-                edge1 = (f"node_{head}", neg_id)
-                edge2 = (neg_id, f"node_{body}")
+            # Create direct edges without intermediate negation nodes
+            if len(dgraph[head]) > 1:
+                and_id = f"and_{and_counter}_{head}"
+                if not any(e['data']['id'] == and_id for e in elements):
+                    add_node('and', 'and', 'and-node',
+                             custom_id=and_id, label_override='and')
+                    and_counter += 1
+                edge1 = (f"node_{head}", and_id)
+                edge2 = (and_id, f"node_{body}")
                 if edge1 not in edge_set:
                     edge_set.add(edge1)
                     elements.append(
-                        {'data': {'id': f"edge_{head}_{neg_id}", 'source': edge1[0], 'target': edge1[1]}})
+                        {'data': {'id': f"edge_{head}_{and_id}", 'source': edge1[0], 'target': edge1[1]}})
                 if edge2 not in edge_set:
                     edge_set.add(edge2)
                     elements.append(
-                        {'data': {'id': f"edge_{neg_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
+                        {'data': {'id': f"edge_{and_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
             else:
-                if len(dgraph[head]) > 1:
-                    and_id = f"and_{and_counter}_{head}"
-                    if not any(e['data']['id'] == and_id for e in elements):
-                        add_node('and', 'and', 'and-node',
-                                 custom_id=and_id, label_override='and')
-                        and_counter += 1
-                    edge1 = (f"node_{head}", and_id)
-                    edge2 = (and_id, f"node_{body}")
-                    if edge1 not in edge_set:
-                        edge_set.add(edge1)
-                        elements.append(
-                            {'data': {'id': f"edge_{head}_{and_id}", 'source': edge1[0], 'target': edge1[1]}})
-                    if edge2 not in edge_set:
-                        edge_set.add(edge2)
-                        elements.append(
-                            {'data': {'id': f"edge_{and_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
-                else:
-                    edge = (f"node_{head}", f"node_{body}")
-                    if edge not in edge_set:
-                        edge_set.add(edge)
-                        elements.append(
-                            {'data': {'id': f"edge_{head}_{body}", 'source': edge[0], 'target': edge[1]}})
+                edge = (f"node_{head}", f"node_{body}")
+                if edge not in edge_set:
+                    edge_set.add(edge)
+                    elements.append(
+                        {'data': {'id': f"edge_{head}_{body}", 'source': edge[0], 'target': edge[1]}})
 
     created_comparisons = {}
     for pred_name, conditions in comparison_conditions.items():
