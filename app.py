@@ -3,21 +3,16 @@ from dash import Dash, html, dcc, Input, Output
 import os
 from argparse import ArgumentParser
 
-# --- Asset folders for each engine ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RAP_ASSETS = os.path.join(BASE_DIR, "RAP", "assets")
-LAMBDA_ASSETS = os.path.join(BASE_DIR, "Lambda", "assets")
-
 
 app = Dash(
     __name__,
-    use_pages=True 
+    use_pages=True
 )
 
 
 page_options = [
     {"label": p["name"], "value": p["relative_path"]}
-    for p in sorted(dash.page_registry.values(), key=lambda x: x["name"])
+    for p in sorted(dash.page_registry.values(), key=lambda x: x["order"])
 ]
 
 
@@ -38,7 +33,6 @@ app.layout = html.Div([
 
     dash.page_container
 ])
-
 
 
 @app.callback(

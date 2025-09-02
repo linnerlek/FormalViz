@@ -94,4 +94,4 @@ Use these as a reference to understand common lambda patterns.
 ## **6. Contact & Source Code**
 - **Linn Erle Kloefta** – [lklfta1@student.gsu.edu](mailto:lklfta1@student.gsu.edu)
 - **Rajshekhar Sunderraman** – [raj@cs.gsu.edu](mailto:raj@cs.gsu.edu)
-- **Source Code:**  [Lambda Engine](https://github.com/linnerlek/Lambda-Engine)
+- **Source Code:** [FormalViz](https://github.com/linnerlek/FormalViz)

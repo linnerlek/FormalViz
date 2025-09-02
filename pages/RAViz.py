@@ -623,8 +623,3 @@ clientside_callback(
     [Output("prev-page-btn", "style"), Output("next-page-btn", "style")],
     [Input("row-count", "data")]
 )
-
-
-if __name__ == '__main__':
-    # run_server(debug=True)
-    run_server(host='0.0.0.0', port=5020)
