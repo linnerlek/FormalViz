@@ -197,7 +197,7 @@ def format_sql_value(arg):
     return str(arg[1])
 
 
-def generate_sql(pred, pred_dict, db=None, rules=None):
+def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
     if db is None:
         raise Exception("Database handle (db) required for SQL generation.")
     
@@ -206,40 +206,70 @@ def generate_sql(pred, pred_dict, db=None, rules=None):
             raise Exception(f"EDB predicate '{pred}' not found in database.")
         
         col_names = db.getAttributes(pred)
-        var_aliases = {}
-        filter_conditions = []
         
-        if rules:
+        # Use specific_args if provided, otherwise look for the predicate in rules
+        target_args = specific_args
+        if not target_args and rules:
             for rule in rules:
                 _, body = rule
                 for lit in body:
                     if lit[1][0] == 'regular' and lit[1][1] == pred:
-                        for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
-                                var_aliases[idx] = arg[1]
-                            elif arg[0] in ('num', 'str'):
-                                filter_conditions.append(
-                                    f"{col_names[idx]} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
-                        
-                        var_map = {}
-                        for idx, arg in enumerate(lit[1][2]):
-                            if arg[0] == 'var' and arg[1] and arg[1] != '_':
-                                var_map[arg[1]] = col_names[idx]
-                        
-                        for comp_lit in body:
-                            if comp_lit[1][0] == 'comparison':
-                                left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
-                                if (left[0] == 'var' and left[1] in var_map) or (right[0] == 'var' and right[1] in var_map):
-                                    left_val = var_map.get(left[1], left[1]) if left[0] == 'var' else (left[1] if left[0] == 'num' else repr(left[1]))
-                                    right_val = var_map.get(right[1], right[1]) if right[0] == 'var' else (right[1] if right[0] == 'num' else repr(right[1]))
-                                    filter_conditions.append(f"{left_val} {op} {right_val}")
+                        target_args = lit[1][2]
+                        break
+                if target_args:
+                    break
         
+        if not target_args:
+            # Fallback to all columns if no specific pattern found
+            return f"SELECT {', '.join(col_names)} FROM {pred}"
+        
+        # Build SQL for specific argument pattern
         select_parts = []
-        for idx, col_name in enumerate(col_names):
-            if idx in var_aliases:
-                select_parts.append(f"{col_name} AS {var_aliases[idx]}")
-            else:
-                select_parts.append(col_name)
+        filter_conditions = []
+        
+        for idx, arg in enumerate(target_args):
+            if idx < len(col_names):  # Ensure we don't exceed column count
+                col_name = col_names[idx]
+                if arg[0] == 'var' and arg[1] and arg[1] != '_':
+                    # Non-underscore variable - include in SELECT with alias
+                    select_parts.append(f"{col_name} AS {arg[1]}")
+                elif arg[0] in ('num', 'str'):
+                    # Constant value - add to WHERE clause and include column
+                    select_parts.append(col_name)
+                    filter_conditions.append(
+                        f"{col_name} = {arg[1] if arg[0] == 'num' else repr(arg[1])}")
+                # Skip underscore variables - they are not selected
+        
+        if not select_parts:
+            # If no specific columns selected, select all
+            select_parts = col_names
+        
+        # Add comparison conditions from the same rule
+        if rules and target_args:
+            for rule in rules:
+                _, body = rule
+                # Find the matching predicate literal
+                target_literal = None
+                for lit in body:
+                    if lit[1][0] == 'regular' and lit[1][1] == pred and lit[1][2] == target_args:
+                        target_literal = lit
+                        break
+                
+                if target_literal:
+                    # Build variable mapping for this specific predicate instance
+                    var_map = {}
+                    for idx, arg in enumerate(target_args):
+                        if arg[0] == 'var' and arg[1] and arg[1] != '_' and idx < len(col_names):
+                            var_map[arg[1]] = col_names[idx]
+                    
+                    # Add comparison conditions that reference variables from this predicate
+                    for comp_lit in body:
+                        if comp_lit[1][0] == 'comparison':
+                            left, op, right = comp_lit[1][1], comp_lit[1][2], comp_lit[1][3]
+                            if (left[0] == 'var' and left[1] in var_map) or (right[0] == 'var' and right[1] in var_map):
+                                left_val = var_map.get(left[1], left[1]) if left[0] == 'var' else (left[1] if left[0] == 'num' else repr(left[1]))
+                                right_val = var_map.get(right[1], right[1]) if right[0] == 'var' else (right[1] if right[0] == 'num' else repr(right[1]))
+                                filter_conditions.append(f"{left_val} {op} {right_val}")
         
         where_clause = f" WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ''
         return f"SELECT {', '.join(select_parts)} FROM {pred}{where_clause}"

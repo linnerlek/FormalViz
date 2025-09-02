@@ -305,12 +305,16 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
-    # Extract predicate name from label (handle both formats: "predicate" and "predicate(args)")
-    full_label = node_data['label'].split('\n')[0]
-    if '(' in full_label:
-        pred_name = full_label.split('(')[0]
-    else:
-        pred_name = full_label
+    # Extract predicate name from node data
+    node_id = node_data['id']
+    pred_name = node_data.get('predicate_name', '')
+    if not pred_name:
+        # Extract from label if predicate_name not available
+        full_label = node_data['label'].split('\n')[0]
+        if '(' in full_label:
+            pred_name = full_label.split('(')[0]
+        else:
+            pred_name = full_label
 
     pred_dict = parsed_data['pred_dict']
     node_type = node_data.get('type', '')
@@ -321,7 +325,7 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
         for element in graph_elements:
             if ('data' in element and 
                 element.get('data', {}).get('type') == 'neg_indicator' and
-                element.get('data', {}).get('parent_pred') == pred_name):
+                element.get('data', {}).get('parent_node_id') == node_id):
                 is_negated = True
                 break
 
@@ -367,8 +371,30 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
         db_path = os.path.join(DB_FOLDER, db_file)
         db = SQLite3()
         db.open(db_path)
+        
+        # Extract specific arguments from the node data for EDB predicates
+        specific_args = None
+        if pred_name not in parsed_data['pred_dict']:
+            # This is an EDB predicate, extract the specific arguments from the node label
+            full_label = node_data['label'].split('\n')[0]
+            if '(' in full_label and ')' in full_label:
+                args_str = full_label[full_label.index('(')+1:full_label.rindex(')')]
+                if args_str.strip():
+                    # Parse the arguments from the label
+                    arg_parts = [arg.strip() for arg in args_str.split(',')]
+                    specific_args = []
+                    for arg_part in arg_parts:
+                        if arg_part == '_':
+                            specific_args.append(('var', '_'))
+                        elif arg_part.startswith("'") and arg_part.endswith("'"):
+                            specific_args.append(('str', arg_part[1:-1]))
+                        elif arg_part.isdigit() or (arg_part.startswith('-') and arg_part[1:].isdigit()):
+                            specific_args.append(('num', int(arg_part)))
+                        else:
+                            specific_args.append(('var', arg_part))
+        
         sql = generate_sql(pred_name, pred_dict, db=db,
-                           rules=parsed_data['rules'])
+                           rules=parsed_data['rules'], specific_args=specific_args)
 
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
@@ -489,8 +515,8 @@ clientside_callback(
             // Position negation indicators
             elements.forEach(function(element) {
                 if (element.classes && element.classes.includes('neg-indicator')) {
-                    const parentPred = element.data.parent_pred;
-                    const parentNode = cy.$('#node_' + parentPred);
+                    const parentNodeId = element.data.parent_node_id;
+                    const parentNode = cy.$('#' + parentNodeId);
                     const negNode = cy.$('#' + element.data.id);
                     
                     if (parentNode.length > 0 && negNode.length > 0) {
@@ -878,151 +904,205 @@ def extract_comparison_conditions(rules):
 
 
 def build_datalog_graph(pred_dict, dgraph, rules=None):
-    elements, pred_contents = [], {}
+    elements = []
     comparison_conditions = extract_comparison_conditions(
         rules) if rules else {}
 
-    # Track which predicates are negated
-    negated_predicates = set()
-    if rules:
-        for head, body in rules:
-            for sign, pred in body:
-                if pred[0] == 'regular' and sign == 'neg':
-                    negated_predicates.add(pred[1])
+    def format_predicate_args(args):
+        """Format arguments for display and comparison"""
+        formatted = []
+        for arg in args:
+            if isinstance(arg, tuple) and len(arg) >= 2:
+                if arg[0] == 'var':
+                    formatted.append(arg[1] if arg[1] and arg[1] != '_' else '_')
+                elif arg[0] == 'num':
+                    formatted.append(str(arg[1]))
+                elif arg[0] == 'str':
+                    formatted.append(f"'{arg[1]}'")
+                else:
+                    formatted.append('_')
+            else:
+                formatted.append('_')
+        return ', '.join(formatted)
 
-    edb_variables = {}
+    # Track unique predicate instances (predicate name + argument pattern)
+    predicate_instances = {}
+    negated_instances = set()
+    instance_counter = {}
+    
     if rules:
         for head, body in rules:
             head_name = head[1]
-            pred_contents.setdefault(head_name, [])
+            head_args = head[2]
+            
+            # Create unique instance for head predicate
+            head_key = f"{head_name}({format_predicate_args(head_args)})"
+            if head_key not in predicate_instances:
+                instance_id = instance_counter.get(head_name, 0)
+                predicate_instances[head_key] = {
+                    'name': head_name,
+                    'args': head_args,
+                    'instance_id': instance_id,
+                    'node_id': f"node_{head_name}_{instance_id}",
+                    'type': 'idb'
+                }
+                instance_counter[head_name] = instance_id + 1
+            
+            # Process body predicates
             for sign, pred in body:
                 if pred[0] == 'regular':
                     pred_name = pred[1]
-                    pred_contents.setdefault(pred_name, [])
+                    pred_args = pred[2]
+                    pred_key = f"{pred_name}({format_predicate_args(pred_args)})"
+                    
+                    if pred_key not in predicate_instances:
+                        instance_id = instance_counter.get(pred_name, 0)
+                        predicate_instances[pred_key] = {
+                            'name': pred_name,
+                            'args': pred_args,
+                            'instance_id': instance_id,
+                            'node_id': f"node_{pred_name}_{instance_id}",
+                            'type': 'idb' if pred_name in pred_dict else 'edb'
+                        }
+                        instance_counter[pred_name] = instance_id + 1
+                    
+                    # Track negated instances
+                    if sign == 'neg':
+                        negated_instances.add(pred_key)
 
-                    if pred_name not in pred_dict:
-                        if pred_name not in edb_variables:
-                            edb_variables[pred_name] = pred[2]
+    # Find answer predicate instance
+    answer_instance = None
+    for instance in predicate_instances.values():
+        if instance['name'].lower() == 'answer':
+            answer_instance = instance
+            break
 
-                    const_values = [format_arg(
-                        arg) for arg in pred[2] if arg[0] in ('str', 'num')]
-                    if const_values:
-                        content = ", ".join(const_values)
-                        if content not in pred_contents[pred_name]:
-                            pred_contents[pred_name].append(content)
-    all_body_preds = {p for heads in dgraph.values() for p in heads}
-    edb_preds = [p for p in all_body_preds if p not in pred_dict]
-    answer_pred = next((p for p in pred_dict if p.lower() == 'answer'), None)
-
-    def add_node(pred, node_type, classes, custom_id=None, label_override=None):
-        if label_override is not None:
-            label = label_override
-        else:
-            if pred in pred_dict and pred_dict[pred]:
-                args = pred_dict[pred][0] 
-                formatted_args = []
-                for arg in args:
-                    if isinstance(arg, tuple):
-                        if len(arg) >= 2 and arg[1] and arg[1] != '_':
-                            formatted_args.append(str(arg[1]))
-                        else:
-                            formatted_args.append('_')
-                    elif isinstance(arg, str):
-                        if arg and arg != '_':
-                            formatted_args.append(arg)
-                        else:
-                            formatted_args.append('_')
-                    else:
-                        formatted_args.append('_')
-                label = f"{pred}({', '.join(formatted_args)})"
-            elif pred in edb_variables:
-                args = edb_variables[pred]
-                formatted_args = []
-                for arg in args:
-                    if arg[0] == 'var' and arg[1] and arg[1] != '_':
-                        formatted_args.append(arg[1])
-                    else:
-                        formatted_args.append('_')
-                label = f"{pred}({', '.join(formatted_args)})"
-            else:
-                label = pred
-
-            if pred in pred_contents and pred_contents[pred]:
-                label += f"\n({', '.join(pred_contents[pred])})"
-
+    def add_instance_node(instance, classes):
+        pred_name = instance['name']
+        args = instance['args']
+        node_id = instance['node_id']
+        
+        # Create label with full signature
+        label = f"{pred_name}({format_predicate_args(args)})"
+        
         elements.append({
             'data': {
-                'id': custom_id if custom_id else f"node_{pred}",
+                'id': node_id,
                 'label': label,
-                'type': node_type,
-                'arity': len(pred_dict[pred][0]) if pred in pred_dict else None,
-                'conditions': comparison_conditions.get(pred, []),
-                'contents': pred_contents.get(pred, [])
+                'type': instance['type'],
+                'predicate_name': pred_name,
+                'arity': len(args),
+                'conditions': comparison_conditions.get(pred_name, []),
+                'contents': []
             },
             'classes': classes
         })
 
-    # Add negation indicators as separate nodes positioned above negated predicates
-    def add_negation_indicator(pred):
-        neg_id = f"neg_indicator_{pred}"
+    # Add negation indicators for negated instances
+    def add_negation_indicator(instance_key):
+        instance = predicate_instances[instance_key]
+        neg_id = f"neg_indicator_{instance['node_id']}"
         elements.append({
             'data': {
                 'id': neg_id,
                 'label': 'NOT',
                 'type': 'neg_indicator',
-                'parent_pred': pred
+                'parent_pred': instance['name'],
+                'parent_node_id': instance['node_id']
             },
             'classes': 'neg-indicator'
         })
 
-    if answer_pred:
-        add_node(answer_pred, 'idb', 'answer-node')
-    for pred in pred_dict:
-        if pred != answer_pred:
-            add_node(pred, 'idb', 'idb-node')
-    for pred in edb_preds:
-        add_node(pred, 'edb', 'edb-node')
-        
-    # Add negation indicators for negated predicates
-    for pred in negated_predicates:
-        add_negation_indicator(pred)
+    # Add all predicate instance nodes
+    if answer_instance:
+        add_instance_node(answer_instance, 'answer-node')
+    
+    for instance in predicate_instances.values():
+        if instance != answer_instance:
+            if instance['type'] == 'idb':
+                add_instance_node(instance, 'idb-node')
+            else:
+                add_instance_node(instance, 'edb-node')
+    
+    # Add negation indicators
+    for negated_key in negated_instances:
+        add_negation_indicator(negated_key)
 
+    # Create edges based on rule dependencies
     edge_set = set()
     and_counter = 0
-    for head in dgraph:
-        rule_bodies = []
-        if rules:
-            for h, body in rules:
-                if h[1] == head:
-                    rule_bodies.append(body)
-        else:
-            rule_bodies = [[]]
-
-        for body in dgraph[head]:
-            # Create direct edges without intermediate negation nodes
-            if len(dgraph[head]) > 1:
-                and_id = f"and_{and_counter}_{head}"
-                if not any(e['data']['id'] == and_id for e in elements):
-                    add_node('and', 'and', 'and-node',
-                             custom_id=and_id, label_override='and')
-                    and_counter += 1
-                edge1 = (f"node_{head}", and_id)
-                edge2 = (and_id, f"node_{body}")
+    
+    if rules:
+        for head, body in rules:
+            head_name = head[1]
+            head_args = head[2]
+            head_key = f"{head_name}({format_predicate_args(head_args)})"
+            head_node_id = predicate_instances[head_key]['node_id']
+            
+            body_predicates = []
+            for sign, pred in body:
+                if pred[0] == 'regular':
+                    pred_name = pred[1]
+                    pred_args = pred[2]
+                    pred_key = f"{pred_name}({format_predicate_args(pred_args)})"
+                    body_node_id = predicate_instances[pred_key]['node_id']
+                    body_predicates.append((body_node_id, sign))
+            
+            # Create edges
+            if len(body_predicates) > 1:
+                # Multiple body predicates - use AND node
+                and_id = f"and_{and_counter}_{head_node_id}"
+                and_counter += 1
+                
+                elements.append({
+                    'data': {
+                        'id': and_id,
+                        'label': 'and',
+                        'type': 'and'
+                    },
+                    'classes': 'and-node'
+                })
+                
+                # Edge from head to AND node
+                edge1 = (head_node_id, and_id)
                 if edge1 not in edge_set:
                     edge_set.add(edge1)
-                    elements.append(
-                        {'data': {'id': f"edge_{head}_{and_id}", 'source': edge1[0], 'target': edge1[1]}})
-                if edge2 not in edge_set:
-                    edge_set.add(edge2)
-                    elements.append(
-                        {'data': {'id': f"edge_{and_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
+                    elements.append({
+                        'data': {
+                            'id': f"edge_{head_node_id}_{and_id}",
+                            'source': edge1[0],
+                            'target': edge1[1]
+                        }
+                    })
+                
+                # Edges from AND node to body predicates
+                for body_node_id, sign in body_predicates:
+                    edge2 = (and_id, body_node_id)
+                    if edge2 not in edge_set:
+                        edge_set.add(edge2)
+                        elements.append({
+                            'data': {
+                                'id': f"edge_{and_id}_{body_node_id}",
+                                'source': edge2[0],
+                                'target': edge2[1]
+                            }
+                        })
             else:
-                edge = (f"node_{head}", f"node_{body}")
-                if edge not in edge_set:
-                    edge_set.add(edge)
-                    elements.append(
-                        {'data': {'id': f"edge_{head}_{body}", 'source': edge[0], 'target': edge[1]}})
+                # Single body predicate - direct edge
+                if body_predicates:
+                    body_node_id, sign = body_predicates[0]
+                    edge = (head_node_id, body_node_id)
+                    if edge not in edge_set:
+                        edge_set.add(edge)
+                        elements.append({
+                            'data': {
+                                'id': f"edge_{head_node_id}_{body_node_id}",
+                                'source': edge[0],
+                                'target': edge[1]
+                            }
+                        })
 
+    # Add comparison nodes
     created_comparisons = {}
     for pred_name, conditions in comparison_conditions.items():
         for condition in conditions:
@@ -1040,16 +1120,21 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 created_comparisons[comp_key] = comp_id
             else:
                 comp_id = created_comparisons[comp_key]
-            edge = (f"node_{pred_name}", f"node_{comp_id}")
-            if edge not in edge_set:
-                edge_set.add(edge)
-                elements.append({
-                    'data': {
-                        'id': f"edge_{pred_name}_{comp_id}",
-                        'source': edge[0],
-                        'target': edge[1]
-                    }
-                })
+            
+            # Connect to all instances of this predicate
+            for instance in predicate_instances.values():
+                if instance['name'] == pred_name:
+                    edge = (instance['node_id'], f"node_{comp_id}")
+                    if edge not in edge_set:
+                        edge_set.add(edge)
+                        elements.append({
+                            'data': {
+                                'id': f"edge_{instance['node_id']}_{comp_id}",
+                                'source': edge[0],
+                                'target': edge[1]
+                            }
+                        })
+    
     return elements
 
 
