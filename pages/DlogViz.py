@@ -185,7 +185,7 @@ layout = html.Div([
                 dcc.Textarea(
                     id="datalog-query-input",
                     placeholder="Enter Datalog query ending with $...",
-                    className="text-area-input"
+                    className="text-area-input-resizable"
                 ),
                 html.Div(className="control-section", children=[
                     html.Button("Submit", id="datalog-submit",
@@ -195,7 +195,7 @@ layout = html.Div([
                 ]),
                 dcc.ConfirmDialog(id='datalog-error', message='Parse Error!'),
             ]),
-            html.Div(className="tree-table-container", children=[
+            html.Div(className="datalog-tree-table-container", children=[
                 cyto.Cytoscape(
                     id='datalog-graph',
                     layout={
@@ -231,6 +231,7 @@ layout = html.Div([
                     minZoom=0.5,
                     maxZoom=2.0
                 ),
+                html.Div(id="datalog-tree-table-divider", className="divider"),
                 html.Div(
                     className="table-and-pagination",
                     children=[
