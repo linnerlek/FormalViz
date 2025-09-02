@@ -3,11 +3,6 @@ from dash import Dash, html, dcc, Input, Output
 import os
 from argparse import ArgumentParser
 
-# # --- Asset folders for each engine ---
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# RAP_ASSETS = os.path.join(BASE_DIR, "RAP", "assets")
-# LAMBDA_ASSETS = os.path.join(BASE_DIR, "Lambda", "assets")
-
 
 app = Dash(
     __name__,

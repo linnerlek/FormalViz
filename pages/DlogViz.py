@@ -160,7 +160,6 @@ dlog_cytoscape_stylesheet = [
     }
 ]
 
-# --------- Layout ---------
 layout = html.Div([
     html.Div(id='page-content'),
     dcc.Store(id='datalog-parsed-data'),
@@ -199,10 +198,10 @@ layout = html.Div([
                     id='datalog-graph',
                     layout={
                         'name': 'dagre',
-                        'rankDir': 'TB',  # Top to Bottom
-                        'nodeSep': 60,    # Horizontal spacing between nodes
-                        'edgeSep': 30,    # Spacing between edges
-                        'rankSep': 100,   # Vertical spacing between levels
+                        'rankDir': 'TB',  
+                        'nodeSep': 60,    
+                        'edgeSep': 30,   
+                        'rankSep': 100,  
                         'roots': '[id = "node_answer"]',
                         'animate': False
                     },
@@ -289,10 +288,6 @@ layout = html.Div([
     ]),
     html.Div(id='datalog-error-div')
 ])
-# --- Results Panel Callback ---
-
-
-# --- Results Panel Callback (now below the graph) ---
 
 
 @callback(
@@ -310,8 +305,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
 
     pred_name = node_data['label'].split('\n')[0]
     pred_dict = parsed_data['pred_dict']
-
-    # Handle special node types (and, neg, comparison)
     node_type = node_data.get('type', '')
 
     if node_type == 'and':
@@ -328,7 +321,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
                    style={"fontStyle": "italic"})
         ]), 0
 
-    # If this is a comparison node, just explain it
     if node_type == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
         return html.Div([
             html.P("This is a comparison/condition node.",
@@ -342,12 +334,9 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
         db_path = os.path.join(DB_FOLDER, db_file)
         db = SQLite3()
         db.open(db_path)
-
-        # Use the unified generate_sql function for all predicates (both EDB and IDB)
         sql = generate_sql(pred_name, pred_dict, db=db,
                            rules=parsed_data['rules'])
 
-        # Execute SQL and get results
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute(sql)
@@ -373,7 +362,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
                 html.P("No data found for this node.")
             ]), 0
 
-        # Pagination logic
         rows_per_page = 8
         total_rows = len(rows)
         max_page = (total_rows - 1) // rows_per_page if total_rows > 0 else 0
@@ -382,7 +370,6 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
         end_index = start_index + rows_per_page
         visible_rows = rows[start_index:end_index]
 
-        # Create table
         table_header = [html.Th(col) for col in col_names]
         table_body = [html.Tr([html.Td(cell) for cell in row])
                       for row in visible_rows]
@@ -453,8 +440,7 @@ def update_datalog_page(prev_clicks, next_clicks, node_data, submit_clicks,
     return new_page, prev_clicks, next_clicks
 
 
-# Add clientside callback to show/hide pagination buttons
-
+# show/hide pagination buttons
 clientside_callback(
     """
     function(rowCount) {
@@ -480,14 +466,10 @@ def display_datalog_schema_info(selected_db):
         return "Select a database to see schema information"
 
     try:
-        # Setup database connection
         db = SQLite3()
         db.open(os.path.join(DB_FOLDER, selected_db))
-
-        # Get list of tables
         tables = db.relations
 
-        # Build schema information
         schema_info = {}
         for table in tables:
             attrs = db.getAttributes(table)
@@ -498,7 +480,6 @@ def display_datalog_schema_info(selected_db):
                 attrs_info.append({'attribute': attr, 'domain': domain})
             schema_info[table] = attrs_info
 
-        # Create schema display elements
         schema_elements = []
         for rname, details in schema_info.items():
             schema_elements.append(
@@ -588,7 +569,6 @@ def toggle_datalog_queries_modal(_, __):
     return {"display": "none"}, ""
 
 
-# Add a new callback for handling query block clicks
 @callback(
     Output("datalog-query-input", "value"),
     [Input({"type": "datalog-query-block", "index": dash.dependencies.ALL}, "n_clicks")],
@@ -599,7 +579,6 @@ def use_datalog_example_query(n_clicks_list):
     if not ctx.triggered:
         return no_update
 
-    # Check if any button was actually clicked
     if not any(n_clicks for n_clicks in n_clicks_list if n_clicks is not None):
         return no_update
 
@@ -608,11 +587,7 @@ def use_datalog_example_query(n_clicks_list):
     if not match:
         return no_update
 
-    # Extract the example number and fetch from our examples
     index = int(match.group(1))
-
-    # Get the content from the clicked example
-    # This is a simplified approach for demo
     raw_md = get_md_file_content("Datalogqueries.md")
     parts = re.split(r'(```.*?```)', raw_md, flags=re.DOTALL)
 
@@ -626,36 +601,27 @@ def use_datalog_example_query(n_clicks_list):
     return no_update
 
 
-# Function to parse and process the Datalog query
 def parse_datalog_query(query, db_path):
     try:
-        # Setup database connection
         db = SQLite3()
         db.open(os.path.join(DB_FOLDER, db_path))
-
-        # Parse the query using DLOGParser
         parser = DLOGParser()
         rules = parser.parse(query)
 
         if rules is None:
             return None, "Parse error: Invalid query syntax"
 
-        # Construct data structure
         pred_dict = construct_data_structure(rules)
-
-        # Perform semantic checks
         check_result = semantic_checks(db, pred_dict)
         if check_result != "OK":
             return None, check_result
 
-        # Build dependency graph
         dgraph = construct_dependency_graph(pred_dict)
 
-        # Get all predicates and construct ordered list
         all_preds = all_predicates(dgraph)
         pred_list = construct_ordered_predicates(all_preds, dgraph)
 
-        # Return the processed data
+
         return {
             'rules': rules,
             'pred_dict': pred_dict,
@@ -671,7 +637,6 @@ def parse_datalog_query(query, db_path):
         return None, f"Error: {str(e)}"
 
 
-# Helper function to format a variable or constant for display
 def format_arg(arg):
     arg_type, arg_value = arg
     if arg_type == 'var':
@@ -683,7 +648,6 @@ def format_arg(arg):
     return str(arg_value)
 
 
-# Function to extract comparison conditions from rule bodies
 def extract_comparison_conditions(rules):
     predicate_variables, comparison_conditions = {}, {}
     for _, body in rules:
@@ -713,7 +677,6 @@ def extract_comparison_conditions(rules):
     return comparison_conditions
 
 
-# Function to build visual graph elements from datalog structures
 def build_datalog_graph(pred_dict, dgraph, rules=None):
     elements, pred_contents = [], {}
     comparison_conditions = extract_comparison_conditions(
@@ -752,7 +715,7 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             'classes': classes
         })
 
-    # Add main predicate nodes
+
     if answer_pred:
         add_node(answer_pred, 'idb', 'answer-node')
     for pred in pred_dict:
@@ -761,12 +724,10 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     for pred in edb_preds:
         add_node(pred, 'edb', 'edb-node')
 
-    # Build edges and AND/NEG nodes
     edge_set = set()
     and_counter = 0
     neg_counter = 0
     for head in dgraph:
-        # Find the rule for this head (if available)
         rule_bodies = []
         if rules:
             for h, body in rules:
@@ -776,14 +737,12 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             rule_bodies = [[]]
 
         for body in dgraph[head]:
-            # Find if this body is negated in any rule for this head
             is_neg = False
             for rule_body in rule_bodies:
                 for sign, pred in rule_body:
                     if pred[0] == 'regular' and pred[1] == body and sign == 'neg':
                         is_neg = True
             if is_neg:
-                # Insert a neg node between head and body
                 neg_id = f"neg_{neg_counter}_{head}_{body}"
                 neg_counter += 1
                 add_node('neg', 'neg', 'neg-node',
@@ -799,7 +758,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                     elements.append(
                         {'data': {'id': f"edge_{neg_id}_{body}", 'source': edge2[0], 'target': edge2[1]}})
             else:
-                # If there are multiple bodies, insert an AND node
                 if len(dgraph[head]) > 1:
                     and_id = f"and_{and_counter}_{head}"
                     if not any(e['data']['id'] == and_id for e in elements):
@@ -823,7 +781,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                         elements.append(
                             {'data': {'id': f"edge_{head}_{body}", 'source': edge[0], 'target': edge[1]}})
 
-    # Add comparison nodes and edges as before
     created_comparisons = {}
     for pred_name, conditions in comparison_conditions.items():
         for condition in conditions:
@@ -854,7 +811,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     return elements
 
 
-# Main processing callback
 @callback(
     [Output('datalog-parsed-data', 'data'),
      Output('datalog-graph', 'elements'),
@@ -878,29 +834,24 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
     if triggered_id == 'datalog-reset':
         return None, [], False, "", reset_counter + 1
 
-    # Validate inputs
     if not query:
         return no_update, no_update, True, "Please enter a Datalog query", reset_counter
 
     if not db_file:
         return no_update, no_update, True, "Please select a database", reset_counter
 
-    # Make sure query ends with $
     if not query.strip().endswith('$'):
         return no_update, no_update, True, "Query must end with $", reset_counter
 
-    # Parse and process the query
     result, message = parse_datalog_query(query, db_file)
 
     if message != "OK" or result is None:
         return no_update, no_update, True, message, reset_counter
 
-    # Build the graph visualization with rules included for conditions
     graph_elements = build_datalog_graph(
         result['pred_dict'],
         result['dgraph'],
         result['rules']
     )
 
-    # Return the processed data (no output panel)
     return result, graph_elements, False, "", reset_counter + 1
