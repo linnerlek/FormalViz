@@ -310,7 +310,7 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
         pred_name = full_label.split('(')[0]
     else:
         pred_name = full_label
-    
+
     pred_dict = parsed_data['pred_dict']
     node_type = node_data.get('type', '')
 
@@ -817,7 +817,7 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     elements, pred_contents = [], {}
     comparison_conditions = extract_comparison_conditions(
         rules) if rules else {}
-    
+
     # Extract variable information from rules for EDB predicates
     edb_variables = {}
     if rules:
@@ -828,12 +828,13 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 if pred[0] == 'regular':
                     pred_name = pred[1]
                     pred_contents.setdefault(pred_name, [])
-                    
+
                     # Store variable information for EDB predicates
                     if pred_name not in pred_dict:
                         if pred_name not in edb_variables:
-                            edb_variables[pred_name] = pred[2]  # Store the arguments
-                    
+                            # Store the arguments
+                            edb_variables[pred_name] = pred[2]
+
                     const_values = [format_arg(
                         arg) for arg in pred[2] if arg[0] in ('str', 'num')]
                     if const_values:
@@ -882,10 +883,10 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 label = f"{pred}({', '.join(formatted_args)})"
             else:
                 label = pred
-            
+
             if pred in pred_contents and pred_contents[pred]:
                 label += f"\n({', '.join(pred_contents[pred])})"
-        
+
         elements.append({
             'data': {
                 'id': custom_id if custom_id else f"node_{pred}",
@@ -999,7 +1000,9 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
      Output('datalog-error', 'displayed'),
      Output('datalog-error', 'message'),
      Output('datalog-reset-tap-data', 'data'),
-     Output('datalog-highlighted-path', 'data', allow_duplicate=True)],
+     Output('datalog-highlighted-path', 'data', allow_duplicate=True),
+     Output('datalog-query-input', 'value', allow_duplicate=True),
+     Output('datalog-results-panel', 'children', allow_duplicate=True)],
     [Input('datalog-submit', 'n_clicks'),
      Input('datalog-reset', 'n_clicks')],
     [State('datalog-query-input', 'value'),
@@ -1010,26 +1013,26 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 def process_datalog_query(_, __, query, db_file, reset_counter):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, False, "", reset_counter, no_update
+        return no_update, no_update, False, "", reset_counter, no_update, no_update, no_update
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if triggered_id == 'datalog-reset':
-        return None, [], False, "", reset_counter + 1, []
+        return None, [], False, "", reset_counter + 1, [], "", "Click a node to see data."
 
     if not query:
-        return no_update, no_update, True, "Please enter a Datalog query", reset_counter, no_update
+        return no_update, no_update, True, "Please enter a Datalog query", reset_counter, no_update, no_update, no_update
 
     if not db_file:
-        return no_update, no_update, True, "Please select a database", reset_counter, no_update
+        return no_update, no_update, True, "Please select a database", reset_counter, no_update, no_update, no_update
 
     if not query.strip().endswith('$'):
-        return no_update, no_update, True, "Query must end with $", reset_counter, no_update
+        return no_update, no_update, True, "Query must end with $", reset_counter, no_update, no_update, no_update
 
     result, message = parse_datalog_query(query, db_file)
 
     if message != "OK" or result is None:
-        return no_update, no_update, True, message, reset_counter, no_update
+        return no_update, no_update, True, message, reset_counter, no_update, no_update, no_update
 
     graph_elements = build_datalog_graph(
         result['pred_dict'],
@@ -1037,4 +1040,4 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
         result['rules']
     )
 
-    return result, graph_elements, False, "", reset_counter + 1, []
+    return result, graph_elements, False, "", reset_counter + 1, [], no_update, no_update
