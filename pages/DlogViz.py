@@ -50,7 +50,7 @@ dlog_cytoscape_stylesheet = [
             'text-halign': 'center',
             'width': 200,
             'height': 'label',
-            'font-size': '12px',
+            'font-size': '20px',
             'text-wrap': 'wrap',
             'text-max-width': 180,
             'padding': '20px',
@@ -108,7 +108,7 @@ dlog_cytoscape_stylesheet = [
             'shape': 'round-rectangle',
             'text-margin-y': 5,
             'font-weight': 'bold',
-            'font-size': '14px'
+            'font-size': '20px'
         }
     },
     {
@@ -169,6 +169,7 @@ layout = html.Div([
     dcc.Store(id="datalog-prev-clicks", data=0),
     dcc.Store(id="datalog-next-clicks", data=0),
     dcc.Store(id="datalog-row-count", data=0),
+    dcc.Store(id="datalog-highlighted-path", data=[]),
     html.Div(id="app-container", children=[
         html.Div(id="left-section", className="left-section", children=[
             html.Div(className="input-container", children=[
@@ -198,10 +199,10 @@ layout = html.Div([
                     id='datalog-graph',
                     layout={
                         'name': 'dagre',
-                        'rankDir': 'TB',  
-                        'nodeSep': 60,    
-                        'edgeSep': 30,   
-                        'rankSep': 100,  
+                        'rankDir': 'TB',
+                        'nodeSep': 60,
+                        'edgeSep': 30,
+                        'rankSep': 100,
                         'roots': '[id = "node_answer"]',
                         'animate': False
                     },
@@ -303,7 +304,13 @@ def show_node_data(node_data, current_page, parsed_data, db_file):
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
-    pred_name = node_data['label'].split('\n')[0]
+    # Extract predicate name from label (handle both formats: "predicate" and "predicate(args)")
+    full_label = node_data['label'].split('\n')[0]
+    if '(' in full_label:
+        pred_name = full_label.split('(')[0]
+    else:
+        pred_name = full_label
+    
     pred_dict = parsed_data['pred_dict']
     node_type = node_data.get('type', '')
 
@@ -601,6 +608,136 @@ def use_datalog_example_query(n_clicks_list):
     return no_update
 
 
+def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
+    """Find all nodes and edges in the path from start_node to EDB facts"""
+    visited_nodes = set()
+    path_nodes = set()
+    path_edges = set()
+
+    def dfs(node_id):
+        if node_id in visited_nodes:
+            return
+        visited_nodes.add(node_id)
+
+        # Extract predicate name from node_id (remove "node_" prefix)
+        if node_id.startswith("node_"):
+            pred_name = node_id[5:]  # Remove "node_" prefix
+        else:
+            pred_name = node_id
+
+        # If this is an EDB node (not in pred_dict), it's a fact
+        if pred_name not in pred_dict:
+            path_nodes.add(node_id)
+            return
+
+        # If this is an IDB node, add it to path and explore dependencies
+        path_nodes.add(node_id)
+
+        if pred_name in dgraph:
+            for dependency in dgraph[pred_name]:
+                dep_node_id = f"node_{dependency}"
+
+                # Find the actual edges in the graph elements
+                for element in graph_elements:
+                    if 'data' in element and 'source' in element['data']:
+                        edge_data = element['data']
+                        # Check if this edge connects our current node to the dependency
+                        if (edge_data['source'] == node_id and edge_data['target'] == dep_node_id) or \
+                           (edge_data['source'] == node_id and edge_data['target'].startswith('and_')) or \
+                           (edge_data['source'] == node_id and edge_data['target'].startswith('neg_')):
+                            path_edges.add(edge_data['id'])
+
+                            # If it's an intermediate node, also add the node and continue the chain
+                            if edge_data['target'].startswith('and_') or edge_data['target'].startswith('neg_'):
+                                path_nodes.add(edge_data['target'])
+                                # Find the next edge from this intermediate node
+                                for next_element in graph_elements:
+                                    if 'data' in next_element and 'source' in next_element['data']:
+                                        next_edge = next_element['data']
+                                        if next_edge['source'] == edge_data['target']:
+                                            path_edges.add(next_edge['id'])
+
+                dfs(dep_node_id)
+
+    dfs(start_node)
+    return list(path_nodes), list(path_edges)
+
+
+@callback(
+    Output("datalog-highlighted-path", "data"),
+    [Input('datalog-graph', 'tapNodeData')],
+    [State('datalog-parsed-data', 'data'),
+     State('datalog-graph', 'elements')],
+    prevent_initial_call=True
+)
+def update_highlighted_path(node_data, parsed_data, graph_elements):
+    if not node_data or not parsed_data:
+        return []
+
+    node_id = node_data['id']
+    pred_dict = parsed_data['pred_dict']
+    dgraph = parsed_data['dgraph']
+
+    path_nodes, path_edges = find_path_to_facts(
+        node_id, dgraph, pred_dict, graph_elements)
+
+    return path_nodes + path_edges
+
+
+@callback(
+    Output('datalog-graph', 'stylesheet'),
+    [Input("datalog-highlighted-path", "data")],
+    prevent_initial_call=True
+)
+def update_graph_highlighting(highlighted_path):
+    # Base stylesheet
+    base_stylesheet = dlog_cytoscape_stylesheet + [
+        {
+            'selector': 'edge',
+            'style': {
+                'curve-style': 'taxi',
+                'taxi-direction': 'downward',
+                'taxi-turn': 45,
+                'taxi-turn-min-distance': 20,
+                'taxi-turn-max-distance': 80,
+                'width': 3,
+                'line-color': '#778899',
+                'target-arrow-shape': 'triangle',
+                'target-arrow-color': '#778899',
+                'arrow-scale': 1.5,
+                'edge-text-rotation': 'autorotate'
+            }
+        }
+    ]
+
+    if not highlighted_path:
+        return base_stylesheet
+
+    # Add highlighting styles for specific elements
+    for element_id in highlighted_path:
+        if element_id.startswith('edge_'):
+            base_stylesheet.append({
+                'selector': f'[id = "{element_id}"]',
+                'style': {
+                    'width': 5,
+                    'line-color': '#FF0019',
+                    'target-arrow-color': "#FF0019",
+                    'source-arrow-color': '#FF0019'
+                }
+            })
+        else:
+            base_stylesheet.append({
+                'selector': f'[id = "{element_id}"]',
+                'style': {
+                    'border-width': 5,
+                    'border-color': "#FF0019",
+                    'border-style': 'solid',
+                }
+            })
+
+    return base_stylesheet
+
+
 def parse_datalog_query(query, db_path):
     try:
         db = SQLite3()
@@ -620,7 +757,6 @@ def parse_datalog_query(query, db_path):
 
         all_preds = all_predicates(dgraph)
         pred_list = construct_ordered_predicates(all_preds, dgraph)
-
 
         return {
             'rules': rules,
@@ -681,6 +817,9 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     elements, pred_contents = [], {}
     comparison_conditions = extract_comparison_conditions(
         rules) if rules else {}
+    
+    # Extract variable information from rules for EDB predicates
+    edb_variables = {}
     if rules:
         for head, body in rules:
             head_name = head[1]
@@ -689,6 +828,12 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 if pred[0] == 'regular':
                     pred_name = pred[1]
                     pred_contents.setdefault(pred_name, [])
+                    
+                    # Store variable information for EDB predicates
+                    if pred_name not in pred_dict:
+                        if pred_name not in edb_variables:
+                            edb_variables[pred_name] = pred[2]  # Store the arguments
+                    
                     const_values = [format_arg(
                         arg) for arg in pred[2] if arg[0] in ('str', 'num')]
                     if const_values:
@@ -700,9 +845,47 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     answer_pred = next((p for p in pred_dict if p.lower() == 'answer'), None)
 
     def add_node(pred, node_type, classes, custom_id=None, label_override=None):
-        label = label_override if label_override is not None else pred
-        if pred in pred_contents and pred_contents[pred]:
-            label += f"\n({', '.join(pred_contents[pred])})"
+        if label_override is not None:
+            label = label_override
+        else:
+            # Build full predicate signature with arguments
+            if pred in pred_dict and pred_dict[pred]:
+                args = pred_dict[pred][0]  # Get the arguments from pred_dict
+                # Format arguments as variables or underscores
+                formatted_args = []
+                for arg in args:
+                    # Handle both string and tuple formats
+                    if isinstance(arg, tuple):
+                        # If it's a tuple like ('var', 'X'), take the second element
+                        if len(arg) >= 2 and arg[1] and arg[1] != '_':
+                            formatted_args.append(str(arg[1]))
+                        else:
+                            formatted_args.append('_')
+                    elif isinstance(arg, str):
+                        # If it's already a string
+                        if arg and arg != '_':
+                            formatted_args.append(arg)
+                        else:
+                            formatted_args.append('_')
+                    else:
+                        formatted_args.append('_')
+                label = f"{pred}({', '.join(formatted_args)})"
+            elif pred in edb_variables:
+                # Handle EDB predicates using variable information from rules
+                args = edb_variables[pred]
+                formatted_args = []
+                for arg in args:
+                    if arg[0] == 'var' and arg[1] and arg[1] != '_':
+                        formatted_args.append(arg[1])
+                    else:
+                        formatted_args.append('_')
+                label = f"{pred}({', '.join(formatted_args)})"
+            else:
+                label = pred
+            
+            if pred in pred_contents and pred_contents[pred]:
+                label += f"\n({', '.join(pred_contents[pred])})"
+        
         elements.append({
             'data': {
                 'id': custom_id if custom_id else f"node_{pred}",
@@ -714,7 +897,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             },
             'classes': classes
         })
-
 
     if answer_pred:
         add_node(answer_pred, 'idb', 'answer-node')
@@ -816,7 +998,8 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
      Output('datalog-graph', 'elements'),
      Output('datalog-error', 'displayed'),
      Output('datalog-error', 'message'),
-     Output('datalog-reset-tap-data', 'data')],
+     Output('datalog-reset-tap-data', 'data'),
+     Output('datalog-highlighted-path', 'data', allow_duplicate=True)],
     [Input('datalog-submit', 'n_clicks'),
      Input('datalog-reset', 'n_clicks')],
     [State('datalog-query-input', 'value'),
@@ -827,26 +1010,26 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 def process_datalog_query(_, __, query, db_file, reset_counter):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, False, "", reset_counter
+        return no_update, no_update, False, "", reset_counter, no_update
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if triggered_id == 'datalog-reset':
-        return None, [], False, "", reset_counter + 1
+        return None, [], False, "", reset_counter + 1, []
 
     if not query:
-        return no_update, no_update, True, "Please enter a Datalog query", reset_counter
+        return no_update, no_update, True, "Please enter a Datalog query", reset_counter, no_update
 
     if not db_file:
-        return no_update, no_update, True, "Please select a database", reset_counter
+        return no_update, no_update, True, "Please select a database", reset_counter, no_update
 
     if not query.strip().endswith('$'):
-        return no_update, no_update, True, "Query must end with $", reset_counter
+        return no_update, no_update, True, "Query must end with $", reset_counter, no_update
 
     result, message = parse_datalog_query(query, db_file)
 
     if message != "OK" or result is None:
-        return no_update, no_update, True, message, reset_counter
+        return no_update, no_update, True, message, reset_counter, no_update
 
     graph_elements = build_datalog_graph(
         result['pred_dict'],
@@ -854,4 +1037,4 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
         result['rules']
     )
 
-    return result, graph_elements, False, "", reset_counter + 1
+    return result, graph_elements, False, "", reset_counter + 1, []
