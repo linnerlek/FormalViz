@@ -97,4 +97,4 @@ This tool supports the following relational algebra operations:
 ## **5. Contact & Source Code**
 - **Linn Erle Kloefta** – [lklfta1@student.gsu.edu](mailto:lklfta1@student.gsu.edu)
 - **Rajshekhar Sunderraman** - [raj@cs.gsu.edu](mailto:raj@cs.gsu.edu)
-- **Source Code:** [RA-Viz](https://github.com/linnerlek/RA-Viz)
+- **Source Code:** [FormalViz](https://github.com/linnerlek/FormalViz)

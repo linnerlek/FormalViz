@@ -712,8 +712,7 @@ def update_graph_highlighting(highlighted_path):
 
     if not highlighted_path:
         return base_stylesheet
-
-    # Add highlighting styles for specific elements
+    
     for element_id in highlighted_path:
         if element_id.startswith('edge_'):
             base_stylesheet.append({
@@ -818,7 +817,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     comparison_conditions = extract_comparison_conditions(
         rules) if rules else {}
 
-    # Extract variable information from rules for EDB predicates
     edb_variables = {}
     if rules:
         for head, body in rules:
@@ -829,10 +827,9 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                     pred_name = pred[1]
                     pred_contents.setdefault(pred_name, [])
 
-                    # Store variable information for EDB predicates
+
                     if pred_name not in pred_dict:
                         if pred_name not in edb_variables:
-                            # Store the arguments
                             edb_variables[pred_name] = pred[2]
 
                     const_values = [format_arg(
@@ -849,21 +846,16 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
         if label_override is not None:
             label = label_override
         else:
-            # Build full predicate signature with arguments
             if pred in pred_dict and pred_dict[pred]:
-                args = pred_dict[pred][0]  # Get the arguments from pred_dict
-                # Format arguments as variables or underscores
+                args = pred_dict[pred][0] 
                 formatted_args = []
                 for arg in args:
-                    # Handle both string and tuple formats
                     if isinstance(arg, tuple):
-                        # If it's a tuple like ('var', 'X'), take the second element
                         if len(arg) >= 2 and arg[1] and arg[1] != '_':
                             formatted_args.append(str(arg[1]))
                         else:
                             formatted_args.append('_')
                     elif isinstance(arg, str):
-                        # If it's already a string
                         if arg and arg != '_':
                             formatted_args.append(arg)
                         else:
@@ -872,7 +864,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                         formatted_args.append('_')
                 label = f"{pred}({', '.join(formatted_args)})"
             elif pred in edb_variables:
-                # Handle EDB predicates using variable information from rules
                 args = edb_variables[pred]
                 formatted_args = []
                 for arg in args:

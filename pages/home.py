@@ -42,6 +42,19 @@ layout = html.Div([
                     className="tool-desc"
                 ),
             ], className="tool-block", id="ra-tool-block"),
+            html.Div([
+                html.H3("Datalog Visualizer", className="tool-title"),
+                html.Img(
+                    src="/assets/DatalogDemo.gif",
+                    alt="Datalog Visualizer demo",
+                    className="tool-gif"
+                ),
+                html.P(
+                    "Write Datalog queries and visualize their dependency graphs. "
+                    "See how rules relate to facts and explore the data that each predicate produces.",
+                    className="tool-desc"
+                ),
+            ], className="tool-block", id="datalog-tool-block"),
         ], className="tools-section"),
         html.Hr(),
         html.P("Use the menu at the top to choose a tool and start exploring.",
