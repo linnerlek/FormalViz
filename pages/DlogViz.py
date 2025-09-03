@@ -80,6 +80,25 @@ dlog_cytoscape_stylesheet = [
         }
     },
     {
+        'selector': '.or-node',
+        'style': {
+            'background-color': '#FFFFFF',
+            'border-width': 2,
+            'border-color': '#FF6B6B',
+            'shape': 'ellipse',
+            'width': 25,
+            'height': 25,
+            'font-size': '14px',
+            'color': '#FF6B6B',
+            'font-weight': 'bold',
+            'text-outline-width': 0,
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'text-margin-y': 0,
+            'z-index': 10
+        }
+    },
+    {
         'selector': '.neg-indicator',
         'style': {
             'background-color': '#E74C3C',
@@ -333,6 +352,15 @@ def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements
                    style={"fontStyle": "italic"})
         ]), 0
 
+    if node_type == 'or':
+        return html.Div([
+            html.P("This is an OR node.", style={"fontWeight": "bold"}),
+            html.P("It represents that ANY ONE of the connected rule branches can be satisfied to make the predicate true.",
+                   style={"fontStyle": "italic"}),
+            html.P("Multiple rules with the same head predicate create different ways to derive the same result.",
+                   style={"color": "#666"})
+        ]), 0
+
     if node_type == 'neg_indicator':
         parent_pred = node_data.get('parent_pred', 'unknown')
         return html.Div([
@@ -559,6 +587,25 @@ clientside_callback(
                                 y: parentPos.y + 80
                             });
                         }
+                    }
+                }
+            });
+
+            // Position OR nodes at branching points
+            elements.forEach(function(element) {
+                if (element.classes && element.classes.includes('or-node')) {
+                    const orNodeId = element.data.id;
+                    const parentNodeId = element.data.parent_node_id;
+                    const orNode = cy.$('#' + orNodeId);
+                    const parentNode = cy.$('#' + parentNodeId);
+                    
+                    if (parentNode.length > 0 && orNode.length > 0) {
+                        const parentPos = parentNode.position();
+                        // Position OR node slightly below the parent node
+                        orNode.position({
+                            x: parentPos.x,
+                            y: parentPos.y + 80
+                        });
                     }
                 }
             });
@@ -968,44 +1015,74 @@ def extract_comparison_conditions(rules):
     predicate_variables, comparison_conditions = {}, {}
     for _, body in rules:
         var_to_pred = {}
-        for _, pred in body:
+        pred_positions = {}  # Track predicate positions in the body
+        
+        # First pass: collect variables from predicates
+        for pos, (_, pred) in enumerate(body):
             if pred[0] == 'regular':
                 pred_name = pred[1]
+                pred_positions[pred_name] = pos
                 predicate_variables.setdefault(pred_name, set())
                 for arg in pred[2]:
                     if arg[0] == 'var' and arg[1] and arg[1] != '_':
                         predicate_variables[pred_name].add(arg[1])
-                        var_to_pred.setdefault(arg[1], []).append(pred_name)
-        for _, pred in body:
+                        var_to_pred.setdefault(arg[1], []).append((pred_name, pos))
+        
+        # Second pass: process comparisons and link to predicates
+        for pos, (_, pred) in enumerate(body):
             if pred[0] == 'comparison':
                 left_var = pred[1][1] if pred[1][0] == 'var' and pred[1][1] and pred[1][1] != '_' else None
                 right_var = pred[3][1] if pred[3][0] == 'var' and pred[3][1] and pred[3][1] != '_' else None
                 condition = f"{format_arg(pred[1])} {pred[2]} {format_arg(pred[3])}"
+                
+                # Find which predicate(s) define the variables in this comparison
                 related_preds = set()
-                if left_var and left_var in var_to_pred:
-                    related_preds.update(var_to_pred[left_var])
-                if right_var and right_var in var_to_pred:
-                    related_preds.update(var_to_pred[right_var])
-                for pred_name in related_preds:
+                primary_pred = None
+                
+                # Collect all predicates that define variables in this comparison
+                for var in [left_var, right_var]:
+                    if var and var in var_to_pred:
+                        for pred_name, pred_pos in var_to_pred[var]:
+                            related_preds.add(pred_name)
+                            # Primary predicate is the one closest before this comparison
+                            if pred_pos < pos and (primary_pred is None or pred_pos > pred_positions.get(primary_pred, -1)):
+                                primary_pred = pred_name
+                
+                # If we found a primary predicate, associate the comparison with it
+                # Otherwise, associate with all related predicates
+                target_preds = [primary_pred] if primary_pred else list(related_preds)
+                
+                for pred_name in target_preds:
                     comparison_conditions.setdefault(pred_name, [])
                     if condition not in comparison_conditions[pred_name]:
                         comparison_conditions[pred_name].append(condition)
+                        
     return comparison_conditions
 
 
 def build_datalog_graph(pred_dict, dgraph, rules=None):
+    """
+    Build graph based on dependency structure from backend.
+    Each rule creates a dependency path from head to body predicates.
+    Multiple rules with same head create OR relationships.
+    Multiple predicates in rule body create AND relationships.
+    Inter-rule dependencies connect IDB predicates to their defining rules.
+    
+    Args:
+        pred_dict: Dictionary of predicate definitions from backend
+        dgraph: Dependency graph (currently unused but kept for API compatibility)
+        rules: List of parsed rules
+    """
     elements = []
-    comparison_conditions = extract_comparison_conditions(
-        rules) if rules else {}
-
+    comparison_conditions = extract_comparison_conditions(rules) if rules else {}
+    
     def format_predicate_args(args):
         """Format arguments for display and comparison"""
         formatted = []
         for arg in args:
             if isinstance(arg, tuple) and len(arg) >= 2:
                 if arg[0] == 'var':
-                    formatted.append(
-                        arg[1] if arg[1] and arg[1] != '_' else '_')
+                    formatted.append(arg[1] if arg[1] and arg[1] != '_' else '_')
                 elif arg[0] == 'num':
                     formatted.append(str(arg[1]))
                 elif arg[0] == 'str':
@@ -1016,189 +1093,297 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 formatted.append('_')
         return ', '.join(formatted)
 
-    predicate_instances = {}
-    negated_instances = set()
-    instance_counter = {}
+    # Track all nodes and their relationships
+    node_counter = 0
+    created_nodes = {}
+    negated_nodes = set()
+    head_nodes = {}  # Maps predicate name to single head node ID
+    
+    def get_or_create_node(pred_name, pred_args, rule_index=None, body_index=None, is_head=False):
+        """Create unique node for each predicate occurrence"""
+        nonlocal node_counter
+        
+        # For head nodes, use just the predicate name as key to ensure single node per predicate
+        # For body nodes in different rules, create unique instances
+        if is_head:
+            node_key = f"head_{pred_name}"  # Single head node per predicate
+        else:
+            node_key = f"body_{pred_name}_{rule_index}_{body_index}"
+            
+        if node_key not in created_nodes:
+            node_id = f"node_{node_counter}"
+            node_counter += 1
+            
+            # Determine node type
+            node_type = 'idb' if pred_name in pred_dict else 'edb'
+            if pred_name.lower() == 'answer':
+                node_class = 'answer-node'
+            elif node_type == 'idb':
+                node_class = 'idb-node'
+            else:
+                node_class = 'edb-node'
+            
+            label = f"{pred_name}({format_predicate_args(pred_args)})"
+            
+            elements.append({
+                'data': {
+                    'id': node_id,
+                    'label': label,
+                    'type': node_type,
+                    'predicate_name': pred_name,
+                    'arity': len(pred_args),
+                    'conditions': comparison_conditions.get(pred_name, []),
+                    'contents': []
+                },
+                'classes': node_class
+            })
+            
+            created_nodes[node_key] = {
+                'node_id': node_id,
+                'pred_name': pred_name,
+                'pred_args': pred_args,
+                'is_head': is_head
+            }
+            
+            # Track single head node by predicate name
+            if is_head:
+                head_nodes[pred_name] = node_id
+            
+        return created_nodes[node_key]['node_id']
 
-    if rules:
-        for head, body in rules:
-            head_name = head[1]
-            head_args = head[2]
-            head_key = f"{head_name}({format_predicate_args(head_args)})"
-            if head_key not in predicate_instances:
-                instance_id = instance_counter.get(head_name, 0)
-                predicate_instances[head_key] = {
-                    'name': head_name,
-                    'args': head_args,
-                    'instance_id': instance_id,
-                    'node_id': f"node_{head_name}_{instance_id}",
-                    'type': 'idb'
-                }
-                instance_counter[head_name] = instance_id + 1
-
-            for sign, pred in body:
-                if pred[0] == 'regular':
-                    pred_name = pred[1]
-                    pred_args = pred[2]
-                    pred_key = f"{pred_name}({format_predicate_args(pred_args)})"
-
-                    if pred_key not in predicate_instances:
-                        instance_id = instance_counter.get(pred_name, 0)
-                        predicate_instances[pred_key] = {
-                            'name': pred_name,
-                            'args': pred_args,
-                            'instance_id': instance_id,
-                            'node_id': f"node_{pred_name}_{instance_id}",
-                            'type': 'idb' if pred_name in pred_dict else 'edb'
-                        }
-                        instance_counter[pred_name] = instance_id + 1
-
-                    if sign == 'neg':
-                        negated_instances.add(pred_key)
-
-    answer_instance = None
-    for instance in predicate_instances.values():
-        if instance['name'].lower() == 'answer':
-            answer_instance = instance
-            break
-
-    def add_instance_node(instance, classes):
-        pred_name = instance['name']
-        args = instance['args']
-        node_id = instance['node_id']
-
-        label = f"{pred_name}({format_predicate_args(args)})"
-
-        elements.append({
-            'data': {
-                'id': node_id,
-                'label': label,
-                'type': instance['type'],
-                'predicate_name': pred_name,
-                'arity': len(args),
-                'conditions': comparison_conditions.get(pred_name, []),
-                'contents': []
-            },
-            'classes': classes
-        })
-
-    def add_negation_indicator(instance_key):
-        instance = predicate_instances[instance_key]
-        neg_id = f"neg_indicator_{instance['node_id']}"
+    def add_negation_indicator(target_node_id, pred_name):
+        """Add negation indicator for negated predicates"""
+        neg_id = f"neg_indicator_{target_node_id}"
         elements.append({
             'data': {
                 'id': neg_id,
                 'label': 'NOT',
                 'type': 'neg_indicator',
-                'parent_pred': instance['name'],
-                'parent_node_id': instance['node_id']
+                'parent_pred': pred_name,
+                'parent_node_id': target_node_id
             },
             'classes': 'neg-indicator'
         })
 
-    if answer_instance:
-        add_instance_node(answer_instance, 'answer-node')
+    def add_and_node(head_node_id, rule_index):
+        """Create AND node for multiple body predicates"""
+        and_id = f"and_{rule_index}_{head_node_id}"
+        elements.append({
+            'data': {
+                'id': and_id,
+                'label': 'and',
+                'type': 'and',
+                'parent_node_id': head_node_id
+            },
+            'classes': 'and-node'
+        })
+        return and_id
 
-    for instance in predicate_instances.values():
-        if instance != answer_instance:
-            if instance['type'] == 'idb':
-                add_instance_node(instance, 'idb-node')
-            else:
-                add_instance_node(instance, 'edb-node')
+    def add_or_node(head_node_id, pred_name):
+        """Create OR node for multiple rules with same head predicate"""
+        or_id = f"or_{pred_name}_{head_node_id}"
+        elements.append({
+            'data': {
+                'id': or_id,
+                'label': 'or',
+                'type': 'or',
+                'parent_node_id': head_node_id
+            },
+            'classes': 'or-node'
+        })
+        return or_id
 
-    for negated_key in negated_instances:
-        add_negation_indicator(negated_key)
+    def add_edge(source_id, target_id, and_node_id=None, edge_weight=None):
+        """Add edge between nodes with optional ordering weight"""
+        edge_id = f"edge_{source_id}_{target_id}"
+        edge_data = {
+            'id': edge_id,
+            'source': source_id,
+            'target': target_id
+        }
+        if and_node_id:
+            edge_data['and_node_id'] = and_node_id
+        if edge_weight is not None:
+            edge_data['weight'] = edge_weight
+            
+        elements.append({'data': edge_data})
 
-    edge_set = set()
-    and_counter = 0
-
-    if rules:
-        for head, body in rules:
-            head_name = head[1]
-            head_args = head[2]
-            head_key = f"{head_name}({format_predicate_args(head_args)})"
-            head_node_id = predicate_instances[head_key]['node_id']
-
-            body_predicates = []
-            for sign, pred in body:
-                if pred[0] == 'regular':
-                    pred_name = pred[1]
-                    pred_args = pred[2]
-                    pred_key = f"{pred_name}({format_predicate_args(pred_args)})"
-                    body_node_id = predicate_instances[pred_key]['node_id']
-                    body_predicates.append((body_node_id, sign))
-
-            # Create edges
-            if len(body_predicates) > 1:
-                and_id = f"and_{and_counter}_{head_node_id}"
-                and_counter += 1
-
-                elements.append({
-                    'data': {
-                        'id': and_id,
-                        'label': 'and',
-                        'type': 'and',
-                        'parent_node_id': head_node_id
-                    },
-                    'classes': 'and-node'
-                })
-
-                for body_node_id, sign in body_predicates:
-                    edge = (head_node_id, body_node_id)
-                    if edge not in edge_set:
-                        edge_set.add(edge)
-                        elements.append({
-                            'data': {
-                                'id': f"edge_{head_node_id}_{body_node_id}",
-                                'source': head_node_id,
-                                'target': body_node_id,
-                                'and_node_id': and_id
-                            }
-                        })
-            else:
-                if body_predicates:
-                    body_node_id, sign = body_predicates[0]
-                    edge = (head_node_id, body_node_id)
-                    if edge not in edge_set:
-                        edge_set.add(edge)
-                        elements.append({
-                            'data': {
-                                'id': f"edge_{head_node_id}_{body_node_id}",
-                                'source': edge[0],
-                                'target': edge[1]
-                            }
-                        })
-
-    created_comparisons = {}
-    for pred_name, conditions in comparison_conditions.items():
-        for condition in conditions:
-            comp_key = condition.replace(" ", "_")
-            if comp_key not in created_comparisons:
-                comp_id = f"comp_{comp_key}"
-                elements.append({
-                    'data': {
-                        'id': f"node_{comp_id}",
-                        'label': condition,
-                        'type': 'comparison'
-                    },
-                    'classes': 'comparison-node'
-                })
-                created_comparisons[comp_key] = comp_id
-            else:
+    def process_rule_body(rule_index, _, body, parent_node_id):
+        """Process the body of a rule and connect it to the parent node"""
+        # Separate regular predicates and comparisons from body
+        regular_body_preds = []
+        comparison_preds = []
+        predicate_nodes = {}  # Map predicate position to node ID for this rule
+        
+        # First pass: create all predicate nodes
+        for body_index, (sign, pred) in enumerate(body):
+            if pred[0] == 'regular':
+                pred_name = pred[1]
+                pred_args = pred[2]
+                
+                # Check if this is an IDB predicate that has its own rules
+                if pred_name in pred_dict:
+                    # Connect to the head node of this predicate
+                    target_head_id = head_nodes.get(pred_name)
+                    if target_head_id:
+                        regular_body_preds.append((target_head_id, sign, pred_name))
+                        predicate_nodes[body_index] = target_head_id
+                else:
+                    # Create EDB node
+                    body_node_id = get_or_create_node(pred_name, pred_args, rule_index, body_index)
+                    regular_body_preds.append((body_node_id, sign, pred_name))
+                    predicate_nodes[body_index] = body_node_id
+                
+                # Track negated predicates for negation indicators
+                if sign == 'neg':
+                    if pred_name in pred_dict:
+                        target_head_id = head_nodes.get(pred_name)
+                        if target_head_id:
+                            negated_nodes.add(target_head_id)
+                    else:
+                        body_node_id = get_or_create_node(pred_name, pred_args, rule_index, body_index)
+                        negated_nodes.add(body_node_id)
+        
+        # Second pass: process comparisons and link them to the right predicates
+        for body_index, (sign, pred) in enumerate(body):
+            if pred[0] == 'comparison':
+                left_arg, op, right_arg = pred[1], pred[2], pred[3]
+                condition = f"{format_arg(left_arg)} {op} {format_arg(right_arg)}"
+                comp_key = condition.replace(" ", "_")
                 comp_id = created_comparisons[comp_key]
+                
+                # Find which predicate node(s) this comparison should connect to
+                # Look for variables in the comparison and find the predicate that defines them
+                left_var = left_arg[1] if left_arg[0] == 'var' and left_arg[1] and left_arg[1] != '_' else None
+                right_var = right_arg[1] if right_arg[0] == 'var' and right_arg[1] and right_arg[1] != '_' else None
+                
+                target_predicate_nodes = set()
+                
+                # Find the predicate node(s) that define the variables in this comparison
+                for var in [left_var, right_var]:
+                    if var:
+                        # Look for this variable in the predicates of this rule body
+                        for pred_index, (_, pred_data) in enumerate(body):
+                            if pred_data[0] == 'regular' and pred_index in predicate_nodes:
+                                pred_args = pred_data[2]
+                                for arg in pred_args:
+                                    if arg[0] == 'var' and arg[1] == var:
+                                        target_predicate_nodes.add(predicate_nodes[pred_index])
+                                        break
+                
+                # Connect comparison to the predicate nodes that define its variables
+                for target_node in target_predicate_nodes:
+                    comparison_preds.append((comp_id, target_node))
 
-            for instance in predicate_instances.values():
-                if instance['name'] == pred_name:
-                    edge = (instance['node_id'], f"node_{comp_id}")
-                    if edge not in edge_set:
-                        edge_set.add(edge)
+        # Create dependency structure for this rule body
+        # Sort predicates so negated ones come last (rightmost in layout)
+        regular_body_preds.sort(key=lambda x: (x[1] == 'neg', x[2]))  # Sort by negation status, then by predicate name
+        
+        if len(regular_body_preds) + len(comparison_preds) > 1:
+            # Multiple body predicates - create AND node
+            and_node_id = add_and_node(parent_node_id, rule_index)
+            
+            # Connect parent to AND node
+            add_edge(parent_node_id, and_node_id)
+            
+            # Connect AND node to each body predicate (negated ones will be rightmost)
+            for i, (body_node_id, sign, pred_name) in enumerate(regular_body_preds):
+                # Give higher weight to negated predicates to push them right
+                weight = i + (10 if sign == 'neg' else 0)
+                add_edge(and_node_id, body_node_id, edge_weight=weight)
+            
+            # Connect comparison predicates to their source predicates, not to the AND node
+            for comp_id, source_node_id in comparison_preds:
+                add_edge(source_node_id, comp_id)
+                
+        elif len(regular_body_preds) == 1 and len(comparison_preds) == 0:
+            # Single body predicate - direct edge
+            body_node_id, sign, pred_name = regular_body_preds[0]
+            add_edge(parent_node_id, body_node_id)
+            
+        elif len(regular_body_preds) == 1 and len(comparison_preds) > 0:
+            # Single predicate with comparisons
+            body_node_id, sign, pred_name = regular_body_preds[0]
+            add_edge(parent_node_id, body_node_id)
+            
+            # Connect comparisons to the predicate
+            for comp_id, source_node_id in comparison_preds:
+                add_edge(source_node_id, comp_id)
+                
+        elif len(regular_body_preds) == 0 and len(comparison_preds) == 1:
+            # Single comparison predicate - direct edge (shouldn't happen in practice)
+            comp_id, _ = comparison_preds[0]
+            add_edge(parent_node_id, comp_id)
+
+    # Process comparison predicates first
+    created_comparisons = {}
+    if rules:
+        for rule_index, (head, body) in enumerate(rules):
+            for body_index, (sign, pred) in enumerate(body):
+                if pred[0] == 'comparison':
+                    left_arg, op, right_arg = pred[1], pred[2], pred[3]
+                    condition = f"{format_arg(left_arg)} {op} {format_arg(right_arg)}"
+                    comp_key = condition.replace(" ", "_")
+                    
+                    if comp_key not in created_comparisons:
+                        comp_id = f"comp_{node_counter}"
+                        node_counter += 1
+                        
                         elements.append({
                             'data': {
-                                'id': f"edge_{instance['node_id']}_{comp_id}",
-                                'source': edge[0],
-                                'target': edge[1]
-                            }
+                                'id': comp_id,
+                                'label': condition,
+                                'type': 'comparison'
+                            },
+                            'classes': 'comparison-node'
                         })
+                        created_comparisons[comp_key] = comp_id
+
+    # First pass: Group rules by head predicate and create head nodes
+    rules_by_head = {}
+    if rules:
+        for rule_index, (head, body) in enumerate(rules):
+            head_pred_name = head[1]
+            head_args = head[2]
+            
+            if head_pred_name not in rules_by_head:
+                rules_by_head[head_pred_name] = []
+            rules_by_head[head_pred_name].append((rule_index, head, body))
+            
+            # Create single head node per predicate
+            get_or_create_node(head_pred_name, head_args, rule_index, is_head=True)
+
+    # Second pass: Process each predicate and create OR/AND structure
+    if rules:
+        for pred_name, pred_rules in rules_by_head.items():
+            head_node_id = head_nodes[pred_name]
+            
+            if len(pred_rules) > 1:
+                # Multiple rules for same predicate - create OR node
+                or_node_id = add_or_node(head_node_id, pred_name)
+                
+                # Connect head to OR node
+                add_edge(head_node_id, or_node_id)
+                
+                # Process each rule as a branch of the OR
+                for rule_index, head, body in pred_rules:
+                    process_rule_body(rule_index, head, body, or_node_id)
+                    
+            else:
+                # Single rule for this predicate - direct connection
+                rule_index, head, body = pred_rules[0]
+                process_rule_body(rule_index, head, body, head_node_id)
+
+    # Add negation indicators for negated predicates
+    for node_id in negated_nodes:
+        # Find the predicate name for this node
+        pred_name = None
+        for node_info in created_nodes.values():
+            if node_info['node_id'] == node_id:
+                pred_name = node_info['pred_name']
+                break
+        if pred_name:
+            add_negation_indicator(node_id, pred_name)
 
     return elements
 
