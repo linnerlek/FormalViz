@@ -314,13 +314,23 @@ layout = html.Div([
     [Output('datalog-results-panel', 'children'),
      Output('datalog-row-count', 'data')],
     [Input('datalog-graph', 'tapNodeData'),
-     Input('datalog-current-page', 'data')],
+     Input('datalog-current-page', 'data'),
+     Input('datalog-reset-tap-data', 'data')],
     [State('datalog-parsed-data', 'data'),
      State('datalog-db-dropdown', 'value'),
      State('datalog-graph', 'elements')],
     prevent_initial_call=True
 )
-def show_node_data(node_data, current_page, parsed_data, db_file, graph_elements):
+def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file, graph_elements):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return "Click a node to see data.", 0
+    
+    # Check if this was triggered by a reset/submit action
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger_id == 'datalog-reset-tap-data':
+        return "Click a node to see data.", 0
+    
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
@@ -1434,4 +1444,21 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
         result['rules']
     )
 
-    return result, graph_elements, False, "", reset_counter + 1, [], no_update, no_update
+    return result, graph_elements, False, "", reset_counter + 1, [], no_update, "Click a node to see data."
+
+# Clear node selection when submit or reset is clicked
+clientside_callback(
+    """
+    function(reset_counter) {
+        const cy = document.getElementById('datalog-graph')._cyreg?.cy;
+        if (cy) {
+            // Unselect all nodes
+            cy.nodes().unselect();
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('datalog-graph', 'data-reset'),
+    [Input('datalog-reset-tap-data', 'data')],
+    prevent_initial_call=True
+)
