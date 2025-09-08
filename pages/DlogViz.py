@@ -119,12 +119,11 @@ dlog_cytoscape_stylesheet = [
     {
         'selector': '.answer-node',
         'style': {
-            'background-color': '#E74C3C',
+            'background-color': '#6FB1FC',
             'border-width': 3,
-            'border-color': '#922B21',
+            'border-color': '#0066CC',
             'shape': 'round-rectangle',
             'text-margin-y': 5,
-            'font-weight': 'bold',
             'font-size': '20px'
         }
     },
@@ -150,10 +149,10 @@ dlog_cytoscape_stylesheet = [
     {
         'selector': '.comparison-node',
         'style': {
-            'background-color': '#F5A45D',
+            'background-color': '#86B342',
             'border-width': 2,
-            'border-color': '#C66E13',
-            'shape': 'diamond',
+            'border-color': '#476E23',
+            'shape': 'round-rectangle',
         }
     },
     {
@@ -325,12 +324,12 @@ def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file,
     ctx = dash.callback_context
     if not ctx.triggered:
         return "Click a node to see data.", 0
-    
+
     # Check if this was triggered by a reset/submit action
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     if trigger_id == 'datalog-reset-tap-data':
         return "Click a node to see data.", 0
-    
+
     if not node_data or not parsed_data or not db_file:
         return "Click a node to see data.", 0
 
@@ -385,9 +384,12 @@ def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file,
         return html.Div([
             html.P("This is a comparison/condition node.",
                    style={"fontWeight": "bold"}),
-            html.P("It does not produce data directly, but applies a condition to its connected predicates.",
+            html.P("Comparison nodes represent conditions that filter data from other predicates.",
                    style={"fontStyle": "italic"}),
-            html.P(f"Condition: {node_data['label']}")
+            html.P(f"Condition: {node_data['label']}", style={
+                   "fontFamily": "monospace", "background": "#f5f5f5", "padding": "5px"}),
+            html.P("This node doesn't contain data directly - it applies the condition to tuples from connected predicates.",
+                   style={"color": "#666"})
         ]), 0
 
     if is_negated:
@@ -440,17 +442,23 @@ def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file,
         if not rows:
             return html.Div([
                 html.Div([
-                    html.H4("Generated SQL Query:", style={
-                            "margin": "0 0 10px 0"}),
-                    html.Pre(sql, style={
-                        "background": "#f5f5f5",
-                        "padding": "10px",
-                        "border": "1px solid #ddd",
-                        "border-radius": "4px",
-                        "font-size": "12px",
-                        "white-space": "pre-wrap",
-                        "margin": "0 0 15px 0"
-                    })
+                    html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
+                                n_clicks=0, className="button",
+                                style={"margin": "0 0 10px 0", "fontSize": "12px"}),
+                    html.Div(id={'type': 'sql-container', 'index': node_id},
+                            style={"display": "none"}, children=[
+                        html.H4("Generated SQL Query:", style={
+                                "margin": "10px 0 10px 0"}),
+                        html.Pre(sql, style={
+                            "background": "#f5f5f5",
+                            "padding": "10px",
+                            "border": "1px solid #ddd",
+                            "border-radius": "4px",
+                            "font-size": "12px",
+                            "white-space": "pre-wrap",
+                            "margin": "0 0 15px 0"
+                        })
+                    ])
                 ]),
                 html.P("No data found for this node.")
             ]), 0
@@ -469,17 +477,23 @@ def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file,
 
         return html.Div([
             html.Div([
-                html.H4("Generated SQL Query:", style={
-                        "margin": "0 0 10px 0"}),
-                html.Pre(sql, style={
-                    "background": "#f5f5f5",
-                    "padding": "10px",
-                    "border": "1px solid #ddd",
-                    "border-radius": "4px",
-                    "font-size": "12px",
-                    "white-space": "pre-wrap",
-                    "margin": "0 0 15px 0"
-                })
+                html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
+                            n_clicks=0, className="button",
+                            style={"margin": "0 0 10px 0", "fontSize": "12px"}),
+                html.Div(id={'type': 'sql-container', 'index': node_id},
+                        style={"display": "none"}, children=[
+                    html.H4("Generated SQL Query:", style={
+                            "margin": "10px 0 10px 0"}),
+                    html.Pre(sql, style={
+                        "background": "#f5f5f5",
+                        "padding": "10px",
+                        "border": "1px solid #ddd",
+                        "border-radius": "4px",
+                        "font-size": "12px",
+                        "white-space": "pre-wrap",
+                        "margin": "0 0 15px 0"
+                    })
+                ])
             ]),
             html.P(f"Number of tuples: {total_rows}", className="tuple-count"),
             html.Table(
@@ -1026,7 +1040,7 @@ def extract_comparison_conditions(rules):
     for _, body in rules:
         var_to_pred = {}
         pred_positions = {}  # Track predicate positions in the body
-        
+
         # First pass: collect variables from predicates
         for pos, (_, pred) in enumerate(body):
             if pred[0] == 'regular':
@@ -1036,19 +1050,20 @@ def extract_comparison_conditions(rules):
                 for arg in pred[2]:
                     if arg[0] == 'var' and arg[1] and arg[1] != '_':
                         predicate_variables[pred_name].add(arg[1])
-                        var_to_pred.setdefault(arg[1], []).append((pred_name, pos))
-        
+                        var_to_pred.setdefault(
+                            arg[1], []).append((pred_name, pos))
+
         # Second pass: process comparisons and link to predicates
         for pos, (_, pred) in enumerate(body):
             if pred[0] == 'comparison':
                 left_var = pred[1][1] if pred[1][0] == 'var' and pred[1][1] and pred[1][1] != '_' else None
                 right_var = pred[3][1] if pred[3][0] == 'var' and pred[3][1] and pred[3][1] != '_' else None
                 condition = f"{format_arg(pred[1])} {pred[2]} {format_arg(pred[3])}"
-                
+
                 # Find which predicate(s) define the variables in this comparison
                 related_preds = set()
                 primary_pred = None
-                
+
                 # Collect all predicates that define variables in this comparison
                 for var in [left_var, right_var]:
                     if var and var in var_to_pred:
@@ -1057,16 +1072,17 @@ def extract_comparison_conditions(rules):
                             # Primary predicate is the one closest before this comparison
                             if pred_pos < pos and (primary_pred is None or pred_pos > pred_positions.get(primary_pred, -1)):
                                 primary_pred = pred_name
-                
+
                 # If we found a primary predicate, associate the comparison with it
                 # Otherwise, associate with all related predicates
-                target_preds = [primary_pred] if primary_pred else list(related_preds)
-                
+                target_preds = [primary_pred] if primary_pred else list(
+                    related_preds)
+
                 for pred_name in target_preds:
                     comparison_conditions.setdefault(pred_name, [])
                     if condition not in comparison_conditions[pred_name]:
                         comparison_conditions[pred_name].append(condition)
-                        
+
     return comparison_conditions
 
 
@@ -1077,22 +1093,24 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     Multiple rules with same head create OR relationships.
     Multiple predicates in rule body create AND relationships.
     Inter-rule dependencies connect IDB predicates to their defining rules.
-    
+
     Args:
         pred_dict: Dictionary of predicate definitions from backend
         dgraph: Dependency graph (currently unused but kept for API compatibility)
         rules: List of parsed rules
     """
     elements = []
-    comparison_conditions = extract_comparison_conditions(rules) if rules else {}
-    
+    comparison_conditions = extract_comparison_conditions(
+        rules) if rules else {}
+
     def format_predicate_args(args):
         """Format arguments for display and comparison"""
         formatted = []
         for arg in args:
             if isinstance(arg, tuple) and len(arg) >= 2:
                 if arg[0] == 'var':
-                    formatted.append(arg[1] if arg[1] and arg[1] != '_' else '_')
+                    formatted.append(
+                        arg[1] if arg[1] and arg[1] != '_' else '_')
                 elif arg[0] == 'num':
                     formatted.append(str(arg[1]))
                 elif arg[0] == 'str':
@@ -1108,22 +1126,22 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
     created_nodes = {}
     negated_nodes = set()
     head_nodes = {}  # Maps predicate name to single head node ID
-    
+
     def get_or_create_node(pred_name, pred_args, rule_index=None, body_index=None, is_head=False):
         """Create unique node for each predicate occurrence"""
         nonlocal node_counter
-        
+
         # For head nodes, use just the predicate name as key to ensure single node per predicate
         # For body nodes in different rules, create unique instances
         if is_head:
             node_key = f"head_{pred_name}"  # Single head node per predicate
         else:
             node_key = f"body_{pred_name}_{rule_index}_{body_index}"
-            
+
         if node_key not in created_nodes:
             node_id = f"node_{node_counter}"
             node_counter += 1
-            
+
             # Determine node type
             node_type = 'idb' if pred_name in pred_dict else 'edb'
             if pred_name.lower() == 'answer':
@@ -1132,9 +1150,9 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 node_class = 'idb-node'
             else:
                 node_class = 'edb-node'
-            
+
             label = f"{pred_name}({format_predicate_args(pred_args)})"
-            
+
             elements.append({
                 'data': {
                     'id': node_id,
@@ -1147,18 +1165,18 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 },
                 'classes': node_class
             })
-            
+
             created_nodes[node_key] = {
                 'node_id': node_id,
                 'pred_name': pred_name,
                 'pred_args': pred_args,
                 'is_head': is_head
             }
-            
+
             # Track single head node by predicate name
             if is_head:
                 head_nodes[pred_name] = node_id
-            
+
         return created_nodes[node_key]['node_id']
 
     def add_negation_indicator(target_node_id, pred_name):
@@ -1215,35 +1233,36 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             edge_data['and_node_id'] = and_node_id
         if edge_weight is not None:
             edge_data['weight'] = edge_weight
-            
+
         elements.append({'data': edge_data})
 
     def process_rule_body(rule_index, _, body, parent_node_id):
         """Process the body of a rule and connect it to the parent node"""
         # Separate regular predicates and comparisons from body
         regular_body_preds = []
-        comparison_preds = []
         predicate_nodes = {}  # Map predicate position to node ID for this rule
-        
+
         # First pass: create all predicate nodes
         for body_index, (sign, pred) in enumerate(body):
             if pred[0] == 'regular':
                 pred_name = pred[1]
                 pred_args = pred[2]
-                
+
                 # Check if this is an IDB predicate that has its own rules
                 if pred_name in pred_dict:
                     # Connect to the head node of this predicate
                     target_head_id = head_nodes.get(pred_name)
                     if target_head_id:
-                        regular_body_preds.append((target_head_id, sign, pred_name))
+                        regular_body_preds.append(
+                            (target_head_id, sign, pred_name))
                         predicate_nodes[body_index] = target_head_id
                 else:
                     # Create EDB node
-                    body_node_id = get_or_create_node(pred_name, pred_args, rule_index, body_index)
+                    body_node_id = get_or_create_node(
+                        pred_name, pred_args, rule_index, body_index)
                     regular_body_preds.append((body_node_id, sign, pred_name))
                     predicate_nodes[body_index] = body_node_id
-                
+
                 # Track negated predicates for negation indicators
                 if sign == 'neg':
                     if pred_name in pred_dict:
@@ -1251,79 +1270,43 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                         if target_head_id:
                             negated_nodes.add(target_head_id)
                     else:
-                        body_node_id = get_or_create_node(pred_name, pred_args, rule_index, body_index)
+                        body_node_id = get_or_create_node(
+                            pred_name, pred_args, rule_index, body_index)
                         negated_nodes.add(body_node_id)
-        
-        # Second pass: process comparisons and link them to the right predicates
+
+        # Second pass: process comparisons as standalone EDB nodes
         for body_index, (sign, pred) in enumerate(body):
             if pred[0] == 'comparison':
                 left_arg, op, right_arg = pred[1], pred[2], pred[3]
                 condition = f"{format_arg(left_arg)} {op} {format_arg(right_arg)}"
                 comp_key = condition.replace(" ", "_")
                 comp_id = created_comparisons[comp_key]
-                
-                # Find which predicate node(s) this comparison should connect to
-                # Look for variables in the comparison and find the predicate that defines them
-                left_var = left_arg[1] if left_arg[0] == 'var' and left_arg[1] and left_arg[1] != '_' else None
-                right_var = right_arg[1] if right_arg[0] == 'var' and right_arg[1] and right_arg[1] != '_' else None
-                
-                target_predicate_nodes = set()
-                
-                # Find the predicate node(s) that define the variables in this comparison
-                for var in [left_var, right_var]:
-                    if var:
-                        # Look for this variable in the predicates of this rule body
-                        for pred_index, (_, pred_data) in enumerate(body):
-                            if pred_data[0] == 'regular' and pred_index in predicate_nodes:
-                                pred_args = pred_data[2]
-                                for arg in pred_args:
-                                    if arg[0] == 'var' and arg[1] == var:
-                                        target_predicate_nodes.add(predicate_nodes[pred_index])
-                                        break
-                
-                # Connect comparison to the predicate nodes that define its variables
-                for target_node in target_predicate_nodes:
-                    comparison_preds.append((comp_id, target_node))
+
+                # Treat comparison as a regular body predicate
+                regular_body_preds.append((comp_id, sign, f"comp_{comp_key}"))
 
         # Create dependency structure for this rule body
         # Sort predicates so negated ones come last (rightmost in layout)
-        regular_body_preds.sort(key=lambda x: (x[1] == 'neg', x[2]))  # Sort by negation status, then by predicate name
-        
-        if len(regular_body_preds) + len(comparison_preds) > 1:
+        # Sort by negation status, then by predicate name
+        regular_body_preds.sort(key=lambda x: (x[1] == 'neg', x[2]))
+
+        if len(regular_body_preds) > 1:
             # Multiple body predicates - create AND node
             and_node_id = add_and_node(parent_node_id, rule_index)
-            
+
             # Connect parent to AND node
             add_edge(parent_node_id, and_node_id)
-            
+
             # Connect AND node to each body predicate (negated ones will be rightmost)
             for i, (body_node_id, sign, pred_name) in enumerate(regular_body_preds):
                 # Give higher weight to negated predicates to push them right
                 weight = i + (10 if sign == 'neg' else 0)
                 add_edge(and_node_id, body_node_id, edge_weight=weight)
-            
-            # Connect comparison predicates to their source predicates, not to the AND node
-            for comp_id, source_node_id in comparison_preds:
-                add_edge(source_node_id, comp_id)
-                
-        elif len(regular_body_preds) == 1 and len(comparison_preds) == 0:
+
+        elif len(regular_body_preds) == 1:
             # Single body predicate - direct edge
             body_node_id, sign, pred_name = regular_body_preds[0]
             add_edge(parent_node_id, body_node_id)
-            
-        elif len(regular_body_preds) == 1 and len(comparison_preds) > 0:
-            # Single predicate with comparisons
-            body_node_id, sign, pred_name = regular_body_preds[0]
-            add_edge(parent_node_id, body_node_id)
-            
-            # Connect comparisons to the predicate
-            for comp_id, source_node_id in comparison_preds:
-                add_edge(source_node_id, comp_id)
-                
-        elif len(regular_body_preds) == 0 and len(comparison_preds) == 1:
-            # Single comparison predicate - direct edge (shouldn't happen in practice)
-            comp_id, _ = comparison_preds[0]
-            add_edge(parent_node_id, comp_id)
 
     # Process comparison predicates first
     created_comparisons = {}
@@ -1334,18 +1317,18 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                     left_arg, op, right_arg = pred[1], pred[2], pred[3]
                     condition = f"{format_arg(left_arg)} {op} {format_arg(right_arg)}"
                     comp_key = condition.replace(" ", "_")
-                    
+
                     if comp_key not in created_comparisons:
                         comp_id = f"comp_{node_counter}"
                         node_counter += 1
-                        
+
                         elements.append({
                             'data': {
                                 'id': comp_id,
                                 'label': condition,
-                                'type': 'comparison'
+                                'type': 'edb'
                             },
-                            'classes': 'comparison-node'
+                            'classes': 'edb-node'
                         })
                         created_comparisons[comp_key] = comp_id
 
@@ -1355,30 +1338,31 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
         for rule_index, (head, body) in enumerate(rules):
             head_pred_name = head[1]
             head_args = head[2]
-            
+
             if head_pred_name not in rules_by_head:
                 rules_by_head[head_pred_name] = []
             rules_by_head[head_pred_name].append((rule_index, head, body))
-            
+
             # Create single head node per predicate
-            get_or_create_node(head_pred_name, head_args, rule_index, is_head=True)
+            get_or_create_node(head_pred_name, head_args,
+                               rule_index, is_head=True)
 
     # Second pass: Process each predicate and create OR/AND structure
     if rules:
         for pred_name, pred_rules in rules_by_head.items():
             head_node_id = head_nodes[pred_name]
-            
+
             if len(pred_rules) > 1:
                 # Multiple rules for same predicate - create OR node
                 or_node_id = add_or_node(head_node_id, pred_name)
-                
+
                 # Connect head to OR node
                 add_edge(head_node_id, or_node_id)
-                
+
                 # Process each rule as a branch of the OR
                 for rule_index, head, body in pred_rules:
                     process_rule_body(rule_index, head, body, or_node_id)
-                    
+
             else:
                 # Single rule for this predicate - direct connection
                 rule_index, head, body = pred_rules[0]
@@ -1445,6 +1429,53 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
     )
 
     return result, graph_elements, False, "", reset_counter + 1, [], no_update, "Click a node to see data."
+
+
+# Toggle SQL query visibility
+@callback(
+    [Output({'type': 'sql-container', 'index': dash.dependencies.ALL}, 'style'),
+     Output({'type': 'sql-toggle', 'index': dash.dependencies.ALL}, 'children')],
+    [Input({'type': 'sql-toggle', 'index': dash.dependencies.ALL}, 'n_clicks')],
+    [State({'type': 'sql-container', 'index': dash.dependencies.ALL}, 'style')],
+    prevent_initial_call=True
+)
+def toggle_sql_query(n_clicks_list, current_styles):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update
+
+    # Find which button was clicked
+    triggered_prop = ctx.triggered[0]['prop_id']
+    if 'sql-toggle' not in triggered_prop:
+        return no_update, no_update
+
+    # Parse the triggered component to get the index
+    import json
+    triggered_id = json.loads(triggered_prop.split('.')[0])
+    clicked_index = triggered_id['index']
+
+    new_styles = []
+    new_button_texts = []
+
+    for i, (n_clicks, current_style) in enumerate(zip(n_clicks_list, current_styles)):
+        if n_clicks is None:
+            n_clicks = 0
+
+        # Check if this is the button that was clicked by comparing indices
+        # We need to match the pattern since we can't directly compare indices
+        if i < len(n_clicks_list):
+            if n_clicks > 0 and n_clicks % 2 == 1:  # Odd clicks = show
+                new_styles.append({"display": "block"})
+                new_button_texts.append("Hide SQL Query")
+            else:  # Even clicks (including 0) = hide
+                new_styles.append({"display": "none"})
+                new_button_texts.append("Show SQL Query")
+        else:
+            new_styles.append(current_style)
+            new_button_texts.append("Show SQL Query")
+
+    return new_styles, new_button_texts
+
 
 # Clear node selection when submit or reset is clicked
 clientside_callback(
