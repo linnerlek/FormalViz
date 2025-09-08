@@ -313,20 +313,21 @@ layout = html.Div([
      Output('datalog-row-count', 'data')],
     [Input('datalog-graph', 'tapNodeData'),
      Input('datalog-current-page', 'data'),
-     Input('datalog-reset-tap-data', 'data')],
+     Input('datalog-reset-tap-data', 'data'),
+     Input('datalog-submit', 'n_clicks')],
     [State('datalog-parsed-data', 'data'),
      State('datalog-db-dropdown', 'value'),
      State('datalog-graph', 'elements')],
     prevent_initial_call=True
 )
-def show_node_data(node_data, current_page, reset_counter, parsed_data, db_file, graph_elements):
+def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed_data, db_file, graph_elements):
     ctx = dash.callback_context
     if not ctx.triggered:
         return "Click a node to see data.", 0
 
     # Check if this was triggered by a reset/submit action
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if trigger_id == 'datalog-reset-tap-data':
+    if trigger_id in ['datalog-reset-tap-data', 'datalog-submit']:
         return "Click a node to see data.", 0
 
     if not node_data or not parsed_data or not db_file:
@@ -1389,7 +1390,8 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
      Output('datalog-reset-tap-data', 'data'),
      Output('datalog-highlighted-path', 'data', allow_duplicate=True),
      Output('datalog-query-input', 'value', allow_duplicate=True),
-     Output('datalog-results-panel', 'children', allow_duplicate=True)],
+     Output('datalog-results-panel', 'children', allow_duplicate=True),
+     Output('datalog-current-page', 'data', allow_duplicate=True)],
     [Input('datalog-submit', 'n_clicks'),
      Input('datalog-reset', 'n_clicks')],
     [State('datalog-query-input', 'value'),
@@ -1400,26 +1402,26 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 def process_datalog_query(_, __, query, db_file, reset_counter):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return no_update, no_update, False, "", reset_counter, no_update, no_update, no_update
+        return no_update, no_update, False, "", reset_counter, no_update, no_update, no_update, no_update
 
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
     if triggered_id == 'datalog-reset':
-        return None, [], False, "", reset_counter + 1, [], "", "Click a node to see data."
+        return None, [], False, "", reset_counter + 1, [], "", "Click a node to see data.", 0
 
     if not query:
-        return no_update, no_update, True, "Please enter a Datalog query", reset_counter, no_update, no_update, no_update
+        return no_update, no_update, True, "Please enter a Datalog query", reset_counter, no_update, no_update, no_update, no_update
 
     if not db_file:
-        return no_update, no_update, True, "Please select a database", reset_counter, no_update, no_update, no_update
+        return no_update, no_update, True, "Please select a database", reset_counter, no_update, no_update, no_update, no_update
 
     if not query.strip().endswith('$'):
-        return no_update, no_update, True, "Query must end with $", reset_counter, no_update, no_update, no_update
+        return no_update, no_update, True, "Query must end with $", reset_counter, no_update, no_update, no_update, no_update
 
     result, message = parse_datalog_query(query, db_file)
 
     if message != "OK" or result is None:
-        return no_update, no_update, True, message, reset_counter, no_update, no_update, no_update
+        return no_update, no_update, True, message, reset_counter, no_update, no_update, no_update, no_update
 
     graph_elements = build_datalog_graph(
         result['pred_dict'],
@@ -1427,7 +1429,7 @@ def process_datalog_query(_, __, query, db_file, reset_counter):
         result['rules']
     )
 
-    return result, graph_elements, False, "", reset_counter + 1, [], no_update, "Click a node to see data."
+    return result, graph_elements, False, "", reset_counter + 1, [], no_update, "Click a node to see data.", 0
 
 
 # Toggle SQL query visibility
@@ -1479,7 +1481,7 @@ def toggle_sql_query(n_clicks_list, current_styles):
 # Clear node selection when submit or reset is clicked
 clientside_callback(
     """
-    function(reset_counter) {
+    function(reset_counter, submit_clicks) {
         const cy = document.getElementById('datalog-graph')._cyreg?.cy;
         if (cy) {
             // Unselect all nodes
@@ -1489,6 +1491,7 @@ clientside_callback(
     }
     """,
     Output('datalog-graph', 'data-reset'),
-    [Input('datalog-reset-tap-data', 'data')],
+    [Input('datalog-reset-tap-data', 'data'),
+     Input('datalog-submit', 'n_clicks')],
     prevent_initial_call=True
 )
