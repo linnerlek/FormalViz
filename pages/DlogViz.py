@@ -170,7 +170,6 @@ dlog_cytoscape_stylesheet = [
     {
         'selector': ':selected',
         'style': {
-            'background-color': "#FFE20A",
             'font-weight': 'bold',
         }
     }
