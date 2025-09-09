@@ -187,6 +187,10 @@ def semantic_checks(db, pred_dict):
     return "OK"
 
 
+def generate_ra(pred, pred_dict, db=None, rules=None, specific_args=None):
+    print("inside generate_ra")
+    return "RA expression"
+
 def format_sql_value(arg):
     if arg[0] == 'num':
         return str(arg[1])

@@ -1,6 +1,6 @@
 from dash import clientside_callback
 import sqlite3
-from DLOG.DLOG import generate_sql
+from DLOG.DLOG import generate_sql, generate_ra
 import os
 import re
 import dash
@@ -432,6 +432,10 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
         sql = generate_sql(pred_name, pred_dict, db=db,
                            rules=parsed_data['rules'], specific_args=specific_args)
 
+        # Generate RA expression
+        ra = generate_ra(pred_name, pred_dict, db=db,
+                         rules=parsed_data['rules'], specific_args=specific_args)
+
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute(sql)
@@ -444,6 +448,9 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                 html.Div([
                     html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
                                 n_clicks=0, className="button",
+                                style={"margin": "0 10px 10px 0", "fontSize": "12px"}),
+                    html.Button("Show RA Query", id={'type': 'ra-toggle', 'index': node_id},
+                                n_clicks=0, className="button",
                                 style={"margin": "0 0 10px 0", "fontSize": "12px"}),
                     html.Div(id={'type': 'sql-container', 'index': node_id},
                             style={"display": "none"}, children=[
@@ -453,6 +460,20 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                             "background": "#f5f5f5",
                             "padding": "10px",
                             "border": "1px solid #ddd",
+                            "border-radius": "4px",
+                            "font-size": "12px",
+                            "white-space": "pre-wrap",
+                            "margin": "0 0 15px 0"
+                        })
+                    ]),
+                    html.Div(id={'type': 'ra-container', 'index': node_id},
+                             style={"display": "none"}, children=[
+                        html.H4("Generated RA Expression:", style={
+                                "margin": "10px 0 10px 0"}),
+                        html.Pre(ra, style={
+                            "background": "#f0f8ff",
+                            "padding": "10px",
+                            "border": "1px solid #0066cc",
                             "border-radius": "4px",
                             "font-size": "12px",
                             "white-space": "pre-wrap",
@@ -479,6 +500,9 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
             html.Div([
                 html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
                             n_clicks=0, className="button",
+                            style={"margin": "0 10px 10px 0", "fontSize": "12px"}),
+                html.Button("Show RA Query", id={'type': 'ra-toggle', 'index': node_id},
+                            n_clicks=0, className="button",
                             style={"margin": "0 0 10px 0", "fontSize": "12px"}),
                 html.Div(id={'type': 'sql-container', 'index': node_id},
                         style={"display": "none"}, children=[
@@ -488,6 +512,20 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                         "background": "#f5f5f5",
                         "padding": "10px",
                         "border": "1px solid #ddd",
+                        "border-radius": "4px",
+                        "font-size": "12px",
+                        "white-space": "pre-wrap",
+                        "margin": "0 0 15px 0"
+                    })
+                ]),
+                html.Div(id={'type': 'ra-container', 'index': node_id},
+                         style={"display": "none"}, children=[
+                    html.H4("Generated RA Expression:", style={
+                            "margin": "10px 0 10px 0"}),
+                    html.Pre(ra, style={
+                        "background": "#f0f8ff",
+                        "padding": "10px",
+                        "border": "1px solid #0066cc",
                         "border-radius": "4px",
                         "font-size": "12px",
                         "white-space": "pre-wrap",
@@ -1474,6 +1512,52 @@ def toggle_sql_query(n_clicks_list, current_styles):
         else:
             new_styles.append(current_style)
             new_button_texts.append("Show SQL Query")
+
+    return new_styles, new_button_texts
+
+
+# Toggle RA query visibility
+@callback(
+    [Output({'type': 'ra-container', 'index': dash.dependencies.ALL}, 'style'),
+     Output({'type': 'ra-toggle', 'index': dash.dependencies.ALL}, 'children')],
+    [Input({'type': 'ra-toggle', 'index': dash.dependencies.ALL}, 'n_clicks')],
+    [State({'type': 'ra-container', 'index': dash.dependencies.ALL}, 'style')],
+    prevent_initial_call=True
+)
+def toggle_ra_query(n_clicks_list, current_styles):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update, no_update
+
+    # Find which button was clicked
+    triggered_prop = ctx.triggered[0]['prop_id']
+    if 'ra-toggle' not in triggered_prop:
+        return no_update, no_update
+
+    # Parse the triggered component to get the index
+    import json
+    triggered_id = json.loads(triggered_prop.split('.')[0])
+    clicked_index = triggered_id['index']
+
+    new_styles = []
+    new_button_texts = []
+
+    for i, (n_clicks, current_style) in enumerate(zip(n_clicks_list, current_styles)):
+        if n_clicks is None:
+            n_clicks = 0
+
+        # Check if this is the button that was clicked by comparing indices
+        # We need to match the pattern since we can't directly compare indices
+        if i < len(n_clicks_list):
+            if n_clicks > 0 and n_clicks % 2 == 1:  # Odd clicks = show
+                new_styles.append({"display": "block"})
+                new_button_texts.append("Hide RA Query")
+            else:  # Even clicks (including 0) = hide
+                new_styles.append({"display": "none"})
+                new_button_texts.append("Show RA Query")
+        else:
+            new_styles.append(current_style)
+            new_button_texts.append("Show RA Query")
 
     return new_styles, new_button_texts
 
