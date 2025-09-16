@@ -1,3 +1,5 @@
+import sys
+import os
 import re
 from RAP.RAP import *
 from doctest import debug
@@ -5,8 +7,9 @@ import dash
 from dash import dcc, html, callback, clientside_callback
 from dash.dependencies import Input, Output, State, ALL
 import dash_cytoscape as cyto
-import os
-import sys
+
+# Load extra layouts (dagre)
+cyto.load_extra_layouts()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -231,7 +234,14 @@ layout = html.Div([
             html.Div(className="tree-table-container", children=[
                 cyto.Cytoscape(
                     id='cytoscape-tree',
-                    layout={'name': 'preset'},
+                    layout={
+                        'name': 'dagre',
+                        'rankSep': 60,   # vertical separation between ranks
+                        'nodeSep': 250,   # horizontal separation between nodes
+                        'edgeSep': 50,    # separation between edges
+                        'rankDir': 'TB',  # top-to-bottom
+                        'padding': 50
+                    },
                     elements=[],
                     stylesheet=cytoscape_stylesheet,
                     style={'width': '100%', 'height': '100%'}

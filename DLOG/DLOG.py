@@ -300,22 +300,36 @@ def convert_body_to_ra(body, pred_dict, db):
         )
 
     def project_if_needed(tree, target_cols):
-        # Only add a project node if not already a project node with exactly the target columns
-        # Also unwrap nested project nodes with the same columns
+        # Recursively unwrap nested project nodes with the same set of columns (order-insensitive)
+        def columns_set(cols):
+            return set(cols) if cols is not None else set()
         while (
             tree is not None and
             hasattr(tree, 'get_node_type') and
             tree.get_node_type() == 'project' and
-            tree.get_columns() == target_cols and
+            columns_set(tree.get_columns()) == columns_set(target_cols) and
             hasattr(tree, 'get_left_child') and
             tree.get_left_child() is not None and
             hasattr(tree.get_left_child(), 'get_node_type') and
             tree.get_left_child().get_node_type() == 'project' and
-            tree.get_left_child().get_columns() == target_cols
+            columns_set(tree.get_left_child().get_columns()
+                        ) == columns_set(target_cols)
         ):
             tree = tree.get_left_child()
+        # If the columns match in set and order, return as is
         if is_project_with_columns(tree, target_cols):
             return tree
+        # If the columns match as a set but not order, re-project to correct order
+        if (
+            tree is not None and
+            hasattr(tree, 'get_node_type') and
+            tree.get_node_type() == 'project' and
+            columns_set(tree.get_columns()) == columns_set(target_cols)
+        ):
+            return_node = Node("project", tree.get_left_child(), None)
+            return_node.set_columns(target_cols)
+            return return_node
+        # Otherwise, add a new project node
         return_node = Node("project", tree, None)
         return_node.set_columns(target_cols)
         return return_node
