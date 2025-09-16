@@ -233,7 +233,8 @@ layout = html.Div([
                     id='cytoscape-tree',
                     layout={'name': 'preset'},
                     elements=[],
-                    stylesheet=cytoscape_stylesheet
+                    stylesheet=cytoscape_stylesheet,
+                    style={'width': '100%', 'height': '100%'}
                 ),
                 html.Div(id="tree-table-divider", className="divider"),
                 html.Div(
