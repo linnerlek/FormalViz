@@ -1,5 +1,4 @@
 from dash import clientside_callback
-import sqlite3
 from DLOG.DLOG import generate_sql, generate_ra
 import os
 import re
@@ -436,12 +435,12 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
         ra = generate_ra(pred_name, pred_dict, db=db,
                          rules=parsed_data['rules'], specific_args=specific_args)
 
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
+        cur = db.conn.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
         col_names = [desc[0] for desc in cur.description]
-        conn.close()
+        cur.close()
+        db.close()
 
         if not rows:
             return html.Div([

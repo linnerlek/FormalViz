@@ -1341,15 +1341,15 @@ def fetch_schema_info(db_path):
 
         schema_info = {}
         for table_name in tables:
-            table_name = table_name[0]
+            table_name = table_name[0].upper()
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns = cursor.fetchall()
 
             schema_info[table_name] = []
             for col in columns:
-                base_type = col[2].split('(')[0]
+                base_type = col[2].split('(')[0].upper()
                 schema_info[table_name].append({
-                    'attribute': col[1],
+                    'attribute': col[1].upper(),
                     'domain': base_type
                 })
 
