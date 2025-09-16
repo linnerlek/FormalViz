@@ -406,7 +406,7 @@ html {
   flex-direction: row;
   overflow: hidden;
   width: 100%;
-  flex: 2;
+  flex: 1;
   min-height: 0;
 }
 .datalog-tree-table-container {
@@ -415,6 +415,22 @@ html {
   overflow: hidden;
   width: 100%;
   height: 100%;
+}
+
+.tree-table-container #cytoscape-tree {
+  flex: 8;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+.tree-table-container .table-and-pagination {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 10px;
+  overflow-y: auto;
 }
 .table-and-pagination {
   flex-basis: 45%;
