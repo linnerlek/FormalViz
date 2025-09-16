@@ -217,46 +217,52 @@ def generate_ra(pred, pred_dict, db=None, rules=None, specific_args=None):
     # IDB predicate - build RA tree from rules
     args, bodies = pred_dict[pred]
 
+    # --- New logic: always project at the end, matching head variables (excluding '_'), with correct renaming ---
+    # Build the body/union tree(s)
     if len(bodies) == 1:
-        # Single rule - convert body to RA tree
         ra_tree = convert_body_to_ra(bodies[0], pred_dict, db)
-
-        # Add projection for head variables (filter out underscores)
-        head_vars = [arg[1]
-                     for arg in args if arg[0] == 'var' and arg[1] != '_']
-        if head_vars:
-            # Get all current attributes from the tree
-            all_current_vars = collect_variables_from_tree(ra_tree)
-
-            # Only project if we need to filter or rename columns
-            if set(var.upper() for var in head_vars) != set(all_current_vars):
-                project_node = Node("project", ra_tree, None)
-                project_node.set_columns([var.upper() for var in head_vars])
-                ra_tree = project_node
     else:
-        # Multiple rules - union of all bodies
-        rule_trees = []
-        for body in bodies:
-            body_tree = convert_body_to_ra(body, pred_dict, db)
-            head_vars = [arg[1]
-                         for arg in args if arg[0] == 'var' and arg[1] != '_']
-            if head_vars:
-                # Get all current attributes from the tree
-                all_current_vars = collect_variables_from_tree(body_tree)
-
-                # Only project if we need to filter or rename columns
-                if set(var.upper() for var in head_vars) != set(all_current_vars):
-                    project_node = Node("project", body_tree, None)
-                    project_node.set_columns(
-                        [var.upper() for var in head_vars])
-                    body_tree = project_node
-            rule_trees.append(body_tree)
-
-        # Create union tree
+        rule_trees = [convert_body_to_ra(
+            body, pred_dict, db) for body in bodies]
         ra_tree = rule_trees[0]
         for tree in rule_trees[1:]:
-            union_node = Node("union", ra_tree, tree)
-            ra_tree = union_node
+            ra_tree = Node("union", ra_tree, tree)
+
+    # Prepare the final projection: only variables from head, in order, excluding '_', and with correct names
+    head_vars = []
+    head_renames = []
+    for arg in args:
+        if arg[0] == 'var' and arg[1] != '_':
+            head_vars.append(arg[1].upper())
+            head_renames.append(arg[1])
+    # If there are any head variables, project and rename
+    if head_vars:
+        # Get all current attributes from the tree (in order)
+        all_current_vars = collect_variables_from_tree(ra_tree)
+        # Build mapping from current attributes to head variable names (if needed)
+        # If the current attributes are not in the same order or names as head_vars, project and rename
+        if all_current_vars != head_vars:
+            project_node = Node("project", ra_tree, None)
+            project_node.set_columns(head_vars)
+            ra_tree = project_node
+
+    # Set temporary table names
+    set_temp_table_names(ra_tree)
+
+    # Perform semantic checks
+    status = ra_semantic_checks(ra_tree, db)
+    if status != "OK":
+        raise ValueError(f"RA semantic check failed: {status}")
+
+    # Validate that we can generate SQL from the RA tree
+    try:
+        sql_query = generateSQL(ra_tree, db)
+        if not sql_query:
+            raise ValueError("Failed to generate SQL from RA tree")
+    except Exception as e:
+        raise ValueError(f"SQL generation failed: {e}")
+
+    return ra_tree
 
     # Set temporary table names
     set_temp_table_names(ra_tree)
@@ -282,6 +288,37 @@ def convert_body_to_ra(body, pred_dict, db):
     positive_literals = []
     negative_literals = []
     comparison_literals = []
+
+    # Helper to check if a tree is a project node with the given columns
+    def is_project_with_columns(tree, target_cols):
+        # Returns True if tree is a project node with exactly the target columns (order matters)
+        return (
+            tree is not None and
+            hasattr(tree, 'get_node_type') and
+            tree.get_node_type() == 'project' and
+            tree.get_columns() == target_cols
+        )
+
+    def project_if_needed(tree, target_cols):
+        # Only add a project node if not already a project node with exactly the target columns
+        # Also unwrap nested project nodes with the same columns
+        while (
+            tree is not None and
+            hasattr(tree, 'get_node_type') and
+            tree.get_node_type() == 'project' and
+            tree.get_columns() == target_cols and
+            hasattr(tree, 'get_left_child') and
+            tree.get_left_child() is not None and
+            hasattr(tree.get_left_child(), 'get_node_type') and
+            tree.get_left_child().get_node_type() == 'project' and
+            tree.get_left_child().get_columns() == target_cols
+        ):
+            tree = tree.get_left_child()
+        if is_project_with_columns(tree, target_cols):
+            return tree
+        return_node = Node("project", tree, None)
+        return_node.set_columns(target_cols)
+        return return_node
 
     # Separate different types of literals
     for lit in body:
@@ -344,15 +381,61 @@ def convert_body_to_ra(body, pred_dict, db):
         select_node.set_conditions(conditions)
         ra_tree = select_node
 
-    # Handle negative literals (NOT EXISTS)
-    # For now, we'll convert them to selections with NOT EXISTS subqueries
-    # This is a simplified approach - full implementation would be more complex
+    # Handle negative literals using MINUS operation
     if negative_literals:
-        # This is a placeholder - proper negation handling would require
-        # more sophisticated RA operations like difference or antijoin
-        pass
+        # For negation, we need a simpler approach
+        # For each negative literal, subtract tuples that satisfy it
+        for neg_lit in negative_literals:
+            _, atom = neg_lit
+            pred_name = atom[1]
+            args = atom[2]
+
+            # Find shared variables between positive and negative parts
+            shared_vars = get_shared_variables_from_args(
+                positive_literals, neg_lit)
+
+            if shared_vars:
+                # Create the negative relation tree
+                if pred_name in pred_dict:
+                    neg_relation_tree = generate_ra(pred_name, pred_dict, db)
+                else:
+                    neg_relation_tree = Node("relation", None, None)
+                    neg_relation_tree.set_relation_name(pred_name)
+
+                # Add rename operation for the negative literal
+                neg_relation_tree = add_rename_for_variables(
+                    neg_relation_tree, pred_name, args, db, len(positive_literals))
+
+                shared_vars_upper = [var.upper() for var in shared_vars]
+                # Project positive and negative sides only if needed
+                pos_side = project_if_needed(ra_tree, shared_vars_upper)
+                neg_side = project_if_needed(
+                    neg_relation_tree, shared_vars_upper)
+                remaining_shared = Node("minus", pos_side, neg_side)
+                ra_tree = Node("join", ra_tree, remaining_shared)
 
     return ra_tree
+
+
+def get_shared_variables_from_args(positive_literals, negative_literal):
+    """Get variables that are shared between positive and negative literals."""
+    # Get variables from the negative literal
+    neg_args = negative_literal[1][2]
+    neg_vars = set()
+    for arg in neg_args:
+        if arg[0] == 'var' and arg[1] != '_':
+            neg_vars.add(arg[1])
+
+    # Get variables from positive literals
+    pos_vars = set()
+    for pos_lit in positive_literals:
+        pos_args = pos_lit[1][2]
+        for arg in pos_args:
+            if arg[0] == 'var' and arg[1] != '_':
+                pos_vars.add(arg[1])
+
+    # Return intersection - variables that connect positive and negative parts
+    return list(neg_vars.intersection(pos_vars))
 
 
 def add_rename_for_variables(relation_tree, pred_name, args, db, relation_index):
