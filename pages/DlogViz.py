@@ -1,5 +1,5 @@
 from dash import clientside_callback
-from DLOG.DLOG import generate_sql, generate_ra
+from DLOG.DLOG import generate_sql, generate_ra, ra_tree_to_string_with_semicolon
 import os
 import re
 import dash
@@ -469,7 +469,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                              style={"display": "none"}, children=[
                         html.H4("Generated RA Expression:", style={
                                 "margin": "10px 0 10px 0"}),
-                        html.Pre(ra, style={
+                        html.Pre(ra_tree_to_string_with_semicolon(ra), style={
                             "background": "#f0f8ff",
                             "padding": "10px",
                             "border": "1px solid #0066cc",
@@ -521,7 +521,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                          style={"display": "none"}, children=[
                     html.H4("Generated RA Expression:", style={
                             "margin": "10px 0 10px 0"}),
-                    html.Pre(ra, style={
+                    html.Pre(ra_tree_to_string_with_semicolon(ra), style={
                         "background": "#f0f8ff",
                         "padding": "10px",
                         "border": "1px solid #0066cc",

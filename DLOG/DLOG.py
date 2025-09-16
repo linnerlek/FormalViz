@@ -1,6 +1,7 @@
 import sys
 from DLOG.DLOGParser import DLOGParser
 from DLOG.SQLite3 import *
+from RAP.RAP import Node, semantic_checks as ra_semantic_checks, set_temp_table_names, generateSQL
 
 dlog_parser = DLOGParser()
 
@@ -188,8 +189,409 @@ def semantic_checks(db, pred_dict):
 
 
 def generate_ra(pred, pred_dict, db=None, rules=None, specific_args=None):
-    print("inside generate_ra")
-    return "RA expression"
+    """
+    Convert a DLOG predicate to a Relational Algebra tree.
+
+    Args:
+        pred: Target predicate name
+        pred_dict: Dictionary mapping predicate names to (args, bodies) 
+        db: Database handle for semantic checks
+        rules: Original parsed rules (unused in this implementation)
+        specific_args: Specific arguments for the predicate (unused)
+
+    Returns:
+        Node: Root of the RA tree
+    """
+    if db is None:
+        raise ValueError("Database handle (db) required for RA generation.")
+
+    if pred not in pred_dict:
+        # EDB predicate - create a relation node
+        if not db.relationExists(pred):
+            raise ValueError(f"EDB predicate '{pred}' not found in database.")
+
+        relation_node = Node("relation", None, None)
+        relation_node.set_relation_name(pred)
+        return relation_node
+
+    # IDB predicate - build RA tree from rules
+    args, bodies = pred_dict[pred]
+
+    if len(bodies) == 1:
+        # Single rule - convert body to RA tree
+        ra_tree = convert_body_to_ra(bodies[0], pred_dict, db)
+
+        # Add projection for head variables (filter out underscores)
+        head_vars = [arg[1]
+                     for arg in args if arg[0] == 'var' and arg[1] != '_']
+        if head_vars:
+            # Get all current attributes from the tree
+            all_current_vars = collect_variables_from_tree(ra_tree)
+
+            # Only project if we need to filter or rename columns
+            if set(var.upper() for var in head_vars) != set(all_current_vars):
+                project_node = Node("project", ra_tree, None)
+                project_node.set_columns([var.upper() for var in head_vars])
+                ra_tree = project_node
+    else:
+        # Multiple rules - union of all bodies
+        rule_trees = []
+        for body in bodies:
+            body_tree = convert_body_to_ra(body, pred_dict, db)
+            head_vars = [arg[1]
+                         for arg in args if arg[0] == 'var' and arg[1] != '_']
+            if head_vars:
+                # Get all current attributes from the tree
+                all_current_vars = collect_variables_from_tree(body_tree)
+
+                # Only project if we need to filter or rename columns
+                if set(var.upper() for var in head_vars) != set(all_current_vars):
+                    project_node = Node("project", body_tree, None)
+                    project_node.set_columns(
+                        [var.upper() for var in head_vars])
+                    body_tree = project_node
+            rule_trees.append(body_tree)
+
+        # Create union tree
+        ra_tree = rule_trees[0]
+        for tree in rule_trees[1:]:
+            union_node = Node("union", ra_tree, tree)
+            ra_tree = union_node
+
+    # Set temporary table names
+    set_temp_table_names(ra_tree)
+
+    # Perform semantic checks
+    status = ra_semantic_checks(ra_tree, db)
+    if status != "OK":
+        raise ValueError(f"RA semantic check failed: {status}")
+
+    # Validate that we can generate SQL from the RA tree
+    try:
+        sql_query = generateSQL(ra_tree, db)
+        if not sql_query:
+            raise ValueError("Failed to generate SQL from RA tree")
+    except Exception as e:
+        raise ValueError(f"SQL generation failed: {e}")
+
+    return ra_tree
+
+
+def convert_body_to_ra(body, pred_dict, db):
+    """Convert a DLOG body (list of literals) to an RA tree."""
+    positive_literals = []
+    negative_literals = []
+    comparison_literals = []
+
+    # Separate different types of literals
+    for lit in body:
+        sign, atom = lit
+        if atom[0] == 'regular':
+            if sign == 'pos':
+                positive_literals.append(lit)
+            else:  # sign == 'neg'
+                negative_literals.append(lit)
+        elif atom[0] == 'comparison':
+            comparison_literals.append(lit)
+
+    # Build base tree from positive literals (joins)
+    if not positive_literals:
+        raise ValueError("Body must have at least one positive literal")
+
+    # Build RA tree step by step
+    ra_tree = None
+
+    for i, lit in enumerate(positive_literals):
+        pred_name = lit[1][1]
+        args = lit[1][2]
+
+        # Create base relation node
+        if pred_name in pred_dict:
+            # Recursive call for IDB predicate
+            relation_tree = generate_ra(pred_name, pred_dict, db)
+        else:
+            # EDB predicate
+            relation_tree = Node("relation", None, None)
+            relation_tree.set_relation_name(pred_name)
+
+        # Add rename operation to map database columns to DLOG variables
+        relation_tree = add_rename_for_variables(
+            relation_tree, pred_name, args, db, i)
+
+        if ra_tree is None:
+            ra_tree = relation_tree
+        else:
+            # Create join node
+            join_node = Node("join", ra_tree, relation_tree)
+            ra_tree = join_node
+
+    # Add selections for comparisons
+    if comparison_literals:
+        conditions = []
+        for lit in comparison_literals:
+            _, atom = lit
+            left_arg, op, right_arg = atom[1], atom[2], atom[3]
+
+            # Convert DLOG args to RA condition format
+            left_operand = convert_arg_to_operand(left_arg)
+            right_operand = convert_arg_to_operand(right_arg)
+
+            condition = [left_operand[0], left_operand[1],
+                         op, right_operand[0], right_operand[1]]
+            conditions.append(condition)
+
+        select_node = Node("select", ra_tree, None)
+        select_node.set_conditions(conditions)
+        ra_tree = select_node
+
+    # Handle negative literals (NOT EXISTS)
+    # For now, we'll convert them to selections with NOT EXISTS subqueries
+    # This is a simplified approach - full implementation would be more complex
+    if negative_literals:
+        # This is a placeholder - proper negation handling would require
+        # more sophisticated RA operations like difference or antijoin
+        pass
+
+    return ra_tree
+
+
+def add_rename_for_variables(relation_tree, pred_name, args, db, relation_index):
+    """Add rename operation to map database columns to DLOG variables."""
+    # Get the actual column names from the database
+    if db.relationExists(pred_name):
+        db_columns = db.getAttributes(pred_name)
+    else:
+        # If it's an IDB predicate, we need to get its schema differently
+        # For now, assume the tree already has attributes set
+        if relation_tree.get_attributes():
+            db_columns = relation_tree.get_attributes()
+        else:
+            # Fallback: assume columns are numbered
+            db_columns = [f"col{i}" for i in range(len(args))]
+
+    # Create mapping for variables and handle constants
+    rename_columns = []
+    selections_needed = []
+
+    for i, arg in enumerate(args):
+        if i < len(db_columns):
+            if arg[0] == 'var' and arg[1] != '_':
+                # Map non-underscore variables to their names
+                rename_columns.append(arg[1].upper())
+            elif arg[0] == 'var' and arg[1] == '_':
+                # Keep original column name for underscore variables
+                rename_columns.append(db_columns[i])
+            elif arg[0] == 'str':
+                # For string constants, keep original column and add selection
+                rename_columns.append(db_columns[i])
+                selections_needed.append((db_columns[i], '=', arg[1], 'str'))
+            elif arg[0] == 'num':
+                # For numeric constants, keep original column and add selection
+                rename_columns.append(db_columns[i])
+                selections_needed.append((db_columns[i], '=', arg[1], 'num'))
+            else:
+                # Default case
+                rename_columns.append(db_columns[i])
+        else:
+            rename_columns.append(f"col_{i}")
+
+    # Add rename node if there are any renamings needed
+    rename_needed = any(rename_columns[i] != db_columns[i] for i in range(
+        min(len(rename_columns), len(db_columns))))
+
+    if rename_needed:
+        rename_node = Node("rename", relation_tree, None)
+        rename_node.set_columns(rename_columns)
+        relation_tree = rename_node
+
+    # Add selection for constants
+    if selections_needed:
+        conditions = []
+        for col_name, op, value, value_type in selections_needed:
+            condition = ['col', col_name, op, value_type, value]
+            conditions.append(condition)
+
+        select_node = Node("select", relation_tree, None)
+        select_node.set_conditions(conditions)
+        relation_tree = select_node
+
+    # Project only non-underscore variables
+    non_underscore_vars = []
+    for i, arg in enumerate(args):
+        if arg[0] == 'var' and arg[1] != '_' and i < len(rename_columns):
+            non_underscore_vars.append(rename_columns[i])
+
+    if non_underscore_vars and len(non_underscore_vars) < len(rename_columns):
+        # Only project if we're filtering out some columns
+        project_node = Node("project", relation_tree, None)
+        project_node.set_columns(non_underscore_vars)
+        relation_tree = project_node
+
+    return relation_tree
+
+
+def convert_arg_to_operand(arg):
+    """Convert a DLOG argument to RA operand format."""
+    if arg[0] == 'var':
+        return ['col', arg[1].upper()]
+    elif arg[0] == 'str':
+        return ['str', arg[1]]
+    elif arg[0] == 'num':
+        return ['num', arg[1]]
+    else:
+        return ['col', str(arg[1]).upper()]
+
+
+def add_projection_if_needed(ra_tree, head_vars):
+    """Add projection to RA tree if head variables are subset of body variables."""
+    # Filter out underscore variables from head_vars
+    valid_head_vars = [var for var in head_vars if var != '_']
+
+    if not valid_head_vars:
+        return ra_tree
+
+    # Get all variables from the tree
+    all_vars = collect_variables_from_tree(ra_tree)
+
+    # Convert head_vars to uppercase for consistency
+    head_vars_upper = [var.upper() for var in valid_head_vars]
+
+    # Check if projection is needed
+    if set(head_vars_upper) != set(all_vars):
+        project_node = Node("project", ra_tree, None)
+        project_node.set_columns(head_vars_upper)
+        return project_node
+
+    return ra_tree
+
+
+def collect_variables_from_tree(ra_tree):
+    """Collect all variable names from an RA tree (simplified)."""
+    # This is a simplified implementation
+    # In practice, we'd need to traverse the tree and collect all attribute names
+    if ra_tree.get_attributes():
+        return [attr.upper() for attr in ra_tree.get_attributes()]
+
+    # For relation nodes, get attributes from database
+    if ra_tree.get_node_type() == 'relation':
+        # This would be filled by semantic checks
+        return []
+
+    # For other nodes, combine children attributes
+    all_vars = []
+    if ra_tree.get_left_child():
+        all_vars.extend(collect_variables_from_tree(ra_tree.get_left_child()))
+    if ra_tree.get_right_child():
+        all_vars.extend(collect_variables_from_tree(ra_tree.get_right_child()))
+
+    return list(set(all_vars))  # Remove duplicates
+
+
+def convert_datalog_query_to_ra(query, db_path):
+    """
+    Public interface function to convert a DLOG query to a Relational Algebra tree.
+
+    Args:
+        query: DLOG query string
+        db_path: Path to the database file
+
+    Returns:
+        Node: Root of the RA tree representing the first predicate in the query
+    """
+    # Open database
+    db = SQLite3()
+    db.open(db_path)
+
+    try:
+        # Parse the query
+        rules = dlog_parser.parse(query)
+        if not rules:
+            raise ValueError("Failed to parse DLOG query")
+
+        # Construct data structure
+        pred_dict = construct_data_structure(rules)
+
+        # Perform DLOG semantic checks
+        status = semantic_checks(db, pred_dict)
+        if status != "OK":
+            raise ValueError(f"DLOG semantic check failed: {status}")
+
+        # Get the first predicate (usually the target)
+        first_pred = list(pred_dict.keys())[0]
+
+        # Generate RA tree
+        ra_tree = generate_ra(first_pred, pred_dict, db)
+
+        return ra_tree
+
+    finally:
+        db.close()
+
+
+def node_to_string(node, indent=0):
+    """Convert a Node tree to a string representation in RA format."""
+    if node is None:
+        return ""
+
+    prefix = "  " * indent
+
+    if node.get_node_type() == "relation":
+        return f"{prefix}{node.get_relation_name()}"
+
+    elif node.get_node_type() == "project":
+        columns = ', '.join(node.get_columns())
+        child_str = node_to_string(node.get_left_child(), indent + 1)
+        if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
+            return f"{prefix}project[{columns}](\n{child_str}\n{prefix})"
+        else:
+            return f"{prefix}project[{columns}]({child_str})"
+
+    elif node.get_node_type() == "rename":
+        columns = ', '.join(node.get_columns())
+        child_str = node_to_string(node.get_left_child(), indent)
+        if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
+            return f"{prefix}rename[{columns}](\n{child_str}\n{prefix})"
+        else:
+            return f"{prefix}rename[{columns}]({child_str})"
+
+    elif node.get_node_type() == "select":
+        conditions = []
+        for cond in node.get_conditions():
+            if len(cond) >= 5:
+                _, left_val, op, _, right_val = cond[:5]
+                if isinstance(right_val, str) and not right_val.replace('.', '').isdigit():
+                    conditions.append(f"{left_val}{op}'{right_val}'")
+                else:
+                    conditions.append(f"{left_val}{op}{right_val}")
+        condition_str = ' AND '.join(conditions)
+        child_str = node_to_string(node.get_left_child(), indent + 1)
+        if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
+            return f"{prefix}select[{condition_str}](\n{child_str}\n{prefix})"
+        else:
+            return f"{prefix}select[{condition_str}]({child_str})"
+
+    elif node.get_node_type() in ["join", "union", "intersect", "minus", "times"]:
+        left_str = node_to_string(node.get_left_child(), indent + 1)
+        right_str = node_to_string(node.get_right_child(), indent + 1)
+        op_name = node.get_node_type()
+
+        return f"{prefix}(\n{left_str}\n{prefix} {op_name} \n{right_str}\n{prefix})"
+
+    else:
+        # Handle other node types
+        child_str = ""
+        if node.get_left_child():
+            child_str = node_to_string(node.get_left_child(), indent + 1)
+        return f"{prefix}{node.get_node_type().upper()}({child_str})"
+
+
+def ra_tree_to_string_with_semicolon(node):
+    """Convert RA tree to string and add semicolon at the end."""
+    result = node_to_string(node, 0)
+    if result and not result.endswith(';'):
+        result += ";"
+    return result
+
 
 def format_sql_value(arg):
     if arg[0] == 'num':
@@ -260,7 +662,7 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
                                 args_match = False
                                 break
                             elif target_arg[0] == 'var' and target_arg[1] == '_' and lit_arg[0] == 'var':
-                                continue 
+                                continue
 
                         if args_match:
                             target_literal = lit
