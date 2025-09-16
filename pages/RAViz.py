@@ -93,6 +93,26 @@ def json_to_cytoscape_elements(json_tree, parent_id=None, elements=None, node_co
             ]
             node_label += f"\nHAVING {' and '.join(having_info)}"
 
+    # Insert newlines into long labels for better wrapping
+    def insert_newlines(label, max_len=22):
+        words = label.split(' ')
+        lines = []
+        current = ''
+        for word in words:
+            if len(current) + len(word) + 1 > max_len:
+                lines.append(current)
+                current = word
+            else:
+                if current:
+                    current += ' '
+                current += word
+        if current:
+            lines.append(current)
+        return '\n'.join(lines)
+
+    node_label = '\n'.join([insert_newlines(line)
+                           for line in node_label.split('\n')])
+
     if y not in level_positions:
         level_positions[y] = []
 
@@ -236,8 +256,8 @@ layout = html.Div([
                     id='cytoscape-tree',
                     layout={
                         'name': 'dagre',
-                        'rankSep': 60,   # vertical separation between ranks
-                        'nodeSep': 250,   # horizontal separation between nodes
+                        'rankSep': 120,   # vertical separation between ranks
+                        'nodeSep': 200,   # horizontal separation between nodes
                         'edgeSep': 50,    # separation between edges
                         'rankDir': 'TB',  # top-to-bottom
                         'padding': 50
