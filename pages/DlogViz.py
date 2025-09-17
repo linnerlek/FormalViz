@@ -260,6 +260,34 @@ layout = html.Div([
                             ],
                             className="pagination-buttons"
                         ),
+                        html.Div(
+                            id="datalog-legend-container",
+                            style={
+                                'display': 'flex',
+                                'flexDirection': 'row',
+                                'alignItems': 'center',
+                                'gap': '10px',
+                                'margin': '5px 0 5px 0',
+                                'padding': '8px',
+                                'border': '0',
+                                'borderRadius': '8px',
+                                'width': 'fit-content',
+                            },
+                            children=[
+                                html.Div([
+                                    html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#6FB1FC',
+                                             'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #0066CC'}),
+                                    html.Span('IDB Predicate', style={
+                                              'verticalAlign': 'middle'})
+                                ], style={'display': 'flex', 'alignItems': 'center'}),
+                                html.Div([
+                                    html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#86B342',
+                                             'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #476E23'}),
+                                    html.Span('EDB Predicate', style={
+                                              'verticalAlign': 'middle'})
+                                ], style={'display': 'flex', 'alignItems': 'center'}),
+                            ]
+                        ),
                     ]
                 )
             ]),
