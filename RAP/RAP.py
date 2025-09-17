@@ -298,10 +298,13 @@ class SQLite3():
             doms = []
             for record in records:
                 attrs.append(record[0].upper())
-                if record[1].upper().startswith("INT") or record[1].upper().startswith("NUM"):
+                col_type = record[1].upper()
+                if col_type.startswith("INT") or col_type.startswith("NUM"):
                     doms.append("INTEGER")
-                elif record[1].upper().startswith("DEC"):
+                elif col_type.startswith("DEC"):
                     doms.append("DECIMAL")
+                elif col_type.startswith("CHAR") or col_type.startswith("VARCHAR") or col_type.startswith("TEXT"):
+                    doms.append("VARCHAR")
                 else:
                     doms.append("VARCHAR")
             self.attributes[rname] = attrs
@@ -661,21 +664,21 @@ def semantic_checks(tree, db):
         ldoms = tree.get_left_child().get_domains()
         rdoms = tree.get_right_child().get_domains()
 
+        # Find duplicates
+        duplicates = set(lattrs) & set(rattrs)
         t_attrs = []
         t_doms = []
 
         for i, attr in enumerate(lattrs):
-            if attr in rattrs:
-                t_attrs.append(tree.get_left_child(
-                ).get_relation_name() + "." + attr)
+            if attr in duplicates:
+                t_attrs.append(attr + "_L")
             else:
                 t_attrs.append(attr)
             t_doms.append(ldoms[i])
 
         for i, attr in enumerate(rattrs):
-            if attr in lattrs:
-                t_attrs.append(tree.get_right_child(
-                ).get_relation_name() + "." + attr)
+            if attr in duplicates:
+                t_attrs.append(attr + "_R")
             else:
                 t_attrs.append(attr)
             t_doms.append(rdoms[i])
@@ -788,8 +791,20 @@ def semantic_checks(tree, db):
 
                     return f"SEMANTIC ERROR (PROJECT): Attribute {attr} does not exist"
 
+        # Set attributes and preserve correct domains for projected columns
         tree.set_attributes(p_attrs)
-        tree.set_domains(["INTEGER" for _ in p_attrs])
+        # Map domains from child attributes to projected columns
+        projected_domains = []
+        for attr in p_attrs:
+            if attr in attrs:
+                projected_domains.append(doms[attrs.index(attr)])
+            elif '(' in attr and ')' in attr:
+                # Aggregate functions: treat as INTEGER (or more precise if needed)
+                projected_domains.append("INTEGER")
+            else:
+                # Fallback: treat as VARCHAR
+                projected_domains.append("VARCHAR")
+        tree.set_domains(projected_domains)
         return 'OK'
 
     if tree.get_node_type() == 'rename':
@@ -914,7 +929,29 @@ def generateSQL(tree, db):
         if tree.get_right_child().get_node_type() == "union":
             rquery = f"({rquery})"
 
-        query = f"SELECT * FROM ({lquery}) {tree.get_left_child().get_relation_name()}, ({rquery}) {tree.get_right_child().get_relation_name()}"
+        # Use unique aliases for each side, even if the same relation is used twice
+        left_alias = tree.get_left_child().get_relation_name() + "_L"
+        right_alias = tree.get_right_child().get_relation_name() + "_R"
+
+        # Remove any dots from attribute names for SQL compatibility
+        # Determine duplicates for suffixing
+        left_attrs = tree.get_left_child().get_attributes()
+        right_attrs = tree.get_right_child().get_attributes()
+        duplicates = set(left_attrs) & set(right_attrs)
+        select_cols = []
+        for attr in left_attrs:
+            if attr in duplicates:
+                select_cols.append(f"{left_alias}.\"{attr}\" AS {attr}_L")
+            else:
+                select_cols.append(f"{left_alias}.\"{attr}\" AS {attr}")
+        for attr in right_attrs:
+            if attr in duplicates:
+                select_cols.append(f"{right_alias}.\"{attr}\" AS {attr}_R")
+            else:
+                select_cols.append(f"{right_alias}.\"{attr}\" AS {attr}")
+        select_clause = ", ".join(select_cols)
+
+        query = f"SELECT {select_clause} FROM ({lquery}) {left_alias}, ({rquery}) {right_alias}"
         return query
 
     elif tree.get_node_type() == "project":
@@ -1219,6 +1256,10 @@ def tree_to_json(node, db, node_counter=[0]):
     elif node.get_node_type() == 'join':
         node_json['join_columns'] = node.get_join_columns()
         node_json['attributes'] = node.get_attributes()
+    elif node.get_node_type() == 'times':
+        # For times, show the explicit column names as in the backend
+        node_json['columns'] = node.get_attributes(
+        ) if node.get_attributes() else []
 
     if node.get_node_type() in ['aggregate1', 'aggregate2', 'aggregate3']:
         node_json['aggregate_project_list'] = node.get_aggregate_project_list()
