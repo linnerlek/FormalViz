@@ -128,7 +128,11 @@ def json_to_cytoscape_elements(json_tree, parent_id=None, elements=None, node_co
     level_positions[y].append(x)
 
     elements.append({
-        'data': {'id': node_id, 'label': node_label},
+        'data': {
+            'id': node_id,
+            'label': node_label,
+            'node_type': json_tree.get('node_type', 'Unknown')
+        },
         'position': {'x': x, 'y': y}
     })
 
@@ -206,6 +210,12 @@ cytoscape_stylesheet = [
             'white-space': 'pre',
             'background-color': '#0071CE',
             'text-transform': 'none'
+        }
+    },
+    {
+        'selector': "node[node_type='relation']",
+        'style': {
+            'background-color': '#2ecc40',  # green for root data nodes
         }
     },
     {
