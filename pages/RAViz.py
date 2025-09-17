@@ -251,15 +251,18 @@ legend = html.Div(
     },
     children=[
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#2ecc40', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#2ecc40',
+                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
             html.Span('Relation', style={'verticalAlign': 'middle'})
         ]),
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#0071CE', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#0071CE',
+                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
             html.Span('Operator', style={'verticalAlign': 'middle'})
         ]),
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#CC0000', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#CC0000',
+                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
             html.Span('Selected', style={'verticalAlign': 'middle'})
         ]),
     ]

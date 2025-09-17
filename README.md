@@ -1,2 +1,4 @@
 # Formal Visualizer
-This is a combined visualizer for the two engines RAP and Lambda. In the future I plan on building in Datalog and SKI.
+A tool built to help students visualize Formal Languages, currently supports Datalog, Relational Algebra, and Lambda Calculus.
+
+Check out the hosted application at tinman.cs.gsu.edu:5021/
