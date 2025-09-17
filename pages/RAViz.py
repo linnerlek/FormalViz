@@ -236,6 +236,35 @@ cytoscape_stylesheet = [
 # ------------------ HTML ------------------
 
 
+legend = html.Div(
+    id="legend-container",
+    style={
+        'display': 'flex',
+        'flexDirection': 'row',
+        'alignItems': 'center',
+        'gap': '10px',
+        'margin': '5px 0 5px 0',
+        'padding': '8px',
+        'border': '0',
+        'borderRadius': '8px',
+        'width': 'fit-content',
+    },
+    children=[
+        html.Div([
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#2ecc40', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Span('Relation', style={'verticalAlign': 'middle'})
+        ]),
+        html.Div([
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#0071CE', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Span('Operator', style={'verticalAlign': 'middle'})
+        ]),
+        html.Div([
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#CC0000', 'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Span('Selected', style={'verticalAlign': 'middle'})
+        ]),
+    ]
+)
+
 layout = html.Div([
     html.Div(id='page-content'),
     dcc.Store(id='code-click', data=None),
@@ -291,6 +320,7 @@ layout = html.Div([
                             ],
                             className="pagination-buttons"
                         ),
+                        legend,
                     ],
                 ),
             ]),
