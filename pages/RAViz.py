@@ -197,7 +197,7 @@ def create_table_from_node_info(node_info):
         ]
     )
 
-
+# linn was here 091725
 cytoscape_stylesheet = [
     {
         'selector': 'node',
