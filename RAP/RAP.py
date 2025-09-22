@@ -1031,15 +1031,29 @@ def generateSQL(tree, db):
         query = f"SELECT * FROM ({lquery}) {tree.get_left_child().get_relation_name()} WHERE "
         for condition in tree.get_conditions():
             c1 = condition[1]
-            if condition[0] == 'str':
-                c1 = f"'{c1}'"
             c4 = condition[4]
-            if condition[3] == 'str':
-                c4 = f"'{c4}'"
-            if condition[2] == 'LIKE':
-                query += f"{c1} LIKE {c4} AND "
+            op = condition[2]
+            left_type = condition[0]
+            right_type = condition[3]
+
+            # Case-insensitive string comparison for ALL operators if either side is string or column
+            if (left_type == 'col' or left_type == 'str') and (right_type == 'col' or right_type == 'str'):
+                if left_type == 'col':
+                    c1_sql = f"LOWER({c1})"
+                else:
+                    c1_sql = f"LOWER('{c1}')"
+                if right_type == 'col':
+                    c4_sql = f"LOWER({c4})"
+                else:
+                    c4_sql = f"LOWER('{c4}')"
+                query += f"{c1_sql} {op} {c4_sql} AND "
             else:
-                query += f"{c1} {condition[2]} {c4} AND "
+                # Fallback: original logic
+                if left_type == 'str':
+                    c1 = f"'{c1}'"
+                if right_type == 'str':
+                    c4 = f"'{c4}'"
+                query += f"{c1} {op} {c4} AND "
 
         query = query[:-5]
         # print("Generated SQL Query (select):", query)
@@ -1071,55 +1085,30 @@ def generateSQL(tree, db):
         for join_col in tree.get_join_columns():
             left_has_col = join_col in left_columns
             right_has_col = join_col in right_columns
-
             if left_has_col and right_has_col:
                 valid_join_conditions.append((join_col, join_col))
 
-        if not valid_join_conditions or (left_is_aggregate and right_is_aggregate):
-            query = "SELECT "
-            join_columns_added = set()
+        # Build SELECT clause in the order of tree.get_attributes()
+        select_attrs = tree.get_attributes()
+        select_clause = []
+        for attr in select_attrs:
+            if attr in left_columns:
+                select_clause.append(f"{left_alias}.{attr} AS {attr}")
+            elif attr in right_columns:
+                select_clause.append(f"{right_alias}.{attr} AS {attr}")
+            else:
+                # fallback, should not happen
+                select_clause.append(f"{attr}")
+        query = f"SELECT {', '.join(select_clause)} FROM ({lquery}) {left_alias}, ({rquery}) {right_alias}"
 
-            for col in left_columns:
-                query += f"{left_alias}.{col} AS {col}, "
-                join_columns_added.add(col)
-
-            for col in right_columns:
-                if col not in join_columns_added:
-                    query += f"{right_alias}.{col} AS {col}, "
-
-            if query.endswith(", "):
-                query = query[:-2]
-
-            query += f" FROM ({lquery}) {left_alias}, ({rquery}) {right_alias}"
-            return query
-        else:
-            query = "SELECT "
-            join_columns_added = set()
-
-            for join_col, _ in valid_join_conditions:
-                query += f"{left_alias}.{join_col} AS {join_col}, "
-                join_columns_added.add(join_col)
-
-            for col in left_columns:
-                if col not in join_columns_added:
-                    query += f"{left_alias}.{col} AS {col}, "
-
-            for col in right_columns:
-                if col not in join_columns_added and col not in tree.get_join_columns():
-                    query += f"{right_alias}.{col} AS {col}, "
-
-            if query.endswith(", "):
-                query = query[:-2]
-
-            query += f" FROM ({lquery}) {left_alias}, ({rquery}) {right_alias} WHERE "
-
+        if valid_join_conditions and not (left_is_aggregate and right_is_aggregate):
             join_conditions = []
             for left_col, right_col in valid_join_conditions:
                 join_conditions.append(
                     f"{left_alias}.{left_col} = {right_alias}.{right_col}")
+            query += " WHERE " + " AND ".join(join_conditions)
 
-            query += " AND ".join(join_conditions)
-            return query
+        return query
 
     elif tree.get_node_type() == "intersect":
         lquery = generateSQL(tree.get_left_child(), db)
@@ -1244,28 +1233,29 @@ def tree_to_json(node, db, node_counter=[0]):
         'relation_name': relation_name,
         'left_child': tree_to_json(node.get_left_child(), db, node_counter),
         'right_child': tree_to_json(node.get_right_child(), db, node_counter),
-        'attributes': node.get_attributes()
+        'attributes': node.get_attributes(),
+        'domains': node.get_domains(),
     }
 
-    if node.get_node_type() == 'project':
+    # Always include columns if present
+    if node.get_columns() is not None:
         node_json['columns'] = node.get_columns()
-    elif node.get_node_type() == 'rename':
-        node_json['new_columns'] = node.get_columns()
-    elif node.get_node_type() == 'select':
+    # Always include conditions if present
+    if node.get_conditions() is not None:
         node_json['conditions'] = node.get_conditions()
-    elif node.get_node_type() == 'join':
+    # Always include join_columns if present
+    if node.get_join_columns() is not None:
         node_json['join_columns'] = node.get_join_columns()
-        node_json['attributes'] = node.get_attributes()
-    elif node.get_node_type() == 'times':
-        # For times, show the explicit column names as in the backend
-        node_json['columns'] = node.get_attributes(
-        ) if node.get_attributes() else []
 
+    # For rename, also include new_columns for compatibility
+    if node.get_node_type() == 'rename' and node.get_columns() is not None:
+        node_json['new_columns'] = node.get_columns()
+
+    # For aggregates, always include these fields if present
     if node.get_node_type() in ['aggregate1', 'aggregate2', 'aggregate3']:
         node_json['aggregate_project_list'] = node.get_aggregate_project_list()
         node_json['aggregate_groupby_list'] = node.get_aggregate_groupby_list()
         node_json['aggregate_having_condition'] = node.get_aggregate_having_condition()
-        node_json['columns'] = node.get_columns()  # Include renamed columns
 
     return node_json
 
@@ -1315,18 +1305,15 @@ def json_to_node(json_node):
                 json_to_node(json_node.get('left_child')),
                 json_to_node(json_node.get('right_child')))
 
-    if node.get_node_type() == 'rename':
-        if 'new_columns' in json_node:
-            new_cols = json_node['new_columns']
-            node.set_columns(new_cols)
-            node.set_relation_name(new_cols[0])
-
+    # Set all relevant fields
     node.set_relation_name(json_node.get('relation_name'))
     node.set_attributes(json_node.get('attributes'))
+    node.set_domains(json_node.get('domains'))
 
     if 'columns' in json_node:
         node.set_columns(json_node['columns'])
-
+    if 'new_columns' in json_node:
+        node.set_columns(json_node['new_columns'])
     if 'conditions' in json_node:
         node.set_conditions(json_node['conditions'])
     if 'join_columns' in json_node:
@@ -1339,8 +1326,6 @@ def json_to_node(json_node):
             json_node.get('aggregate_groupby_list', []))
         node.set_aggregate_having_condition(
             json_node.get('aggregate_having_condition', []))
-        if 'columns' in json_node:
-            node.set_columns(json_node['columns'])
 
     return node
 
@@ -1359,12 +1344,9 @@ def get_node_info_from_db(node_id, json_tree, db):
         c.execute(query)
         records = c.fetchall()
 
+        # Always use the SQL cursor's column order for display
         sql_columns = [desc[0] for desc in c.description]
-
-        if node.get_columns():
-            columns = node.get_columns()
-        else:
-            columns = sql_columns
+        columns = sql_columns
 
         return {'columns': columns, 'rows': records}
 
@@ -1443,7 +1425,6 @@ def main():
         else:
             print(msg)
     db.close()
-
 
 if __name__ == '__main__':
     main()

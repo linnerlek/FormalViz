@@ -42,10 +42,10 @@ def get_db_files():
     return [{'label': f, 'value': f} for f in db_files]
 
 
-def json_to_cytoscape_elements(json_tree, parent_id=None, elements=None, node_counter=[0]):
-    # This function is now simplified since the layout is handled by dagre in Cytoscape
+def json_to_cytoscape_elements(json_tree, parent_id=None, elements=None, node_counter=[0], x=0, y=0, x_offset=150, y_offset=100, min_separation=50, level_positions=None):
     if elements is None:
         elements = []
+
     if json_tree is None:
         return elements
 
@@ -147,24 +147,9 @@ def create_table_from_node_info(node_info):
     columns = node_info['columns']
     rows = node_info['rows']
 
-    unique_columns = []
-    seen_columns = set()
-
-    for col in columns:
-        base_col = col.split('.')[-1].lower()
-        if base_col not in seen_columns:
-            unique_columns.append(col)
-            seen_columns.add(base_col)
-
-    table_header = [html.Th(col) for col in unique_columns]
-
-    col_indices = [columns.index(col) for col in unique_columns]
-    filtered_rows = [
-        [row[idx] for idx in col_indices] for row in rows
-    ]
-
-    table_body = [html.Tr([html.Td(cell) for cell in row])
-                  for row in filtered_rows]
+    # Do not deduplicate columns; preserve order and duplicates as returned
+    table_header = [html.Th(col) for col in columns]
+    table_body = [html.Tr([html.Td(cell) for cell in row]) for row in rows]
 
     return html.Table(
         className='classic-table',
@@ -174,7 +159,8 @@ def create_table_from_node_info(node_info):
         ]
     )
 
-# linn was here 091725
+
+# linn was here 042325
 cytoscape_stylesheet = [
     {
         'selector': 'node',
@@ -543,6 +529,8 @@ def update_tree(n_clicks, selected_db, query, reset_counter):
             return elements, None, json_tree, db_path, "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
 
         except Exception as e:
+            # Add this line to print the full stack trace to the server log
+            print(traceback.format_exc())
             return [], None, {}, "", str(e), {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
 
 
