@@ -197,10 +197,7 @@ cytoscape_stylesheet = [
         'style': {
             'line-color': '#778899',
             'width': 3,
-            'arrow-scale': 2,
             'curve-style': 'bezier',
-            'source-arrow-shape': 'triangle',
-            'source-arrow-color': '#778899',
         }
     },
     {

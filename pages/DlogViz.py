@@ -83,12 +83,12 @@ dlog_cytoscape_stylesheet = [
         'style': {
             'background-color': '#FFFFFF',
             'border-width': 2,
-            'border-color': '#FF6B6B',
+            'border-color': "#FF9925",
             'shape': 'ellipse',
             'width': 25,
             'height': 25,
             'font-size': '14px',
-            'color': '#FF6B6B',
+            'color': "#C66E0A",
             'font-weight': 'bold',
             'text-outline-width': 0,
             'text-valign': 'center',
@@ -98,21 +98,22 @@ dlog_cytoscape_stylesheet = [
         }
     },
     {
-        'selector': '.neg-indicator',
+        'selector': '.not-node',
         'style': {
-            'background-color': '#E74C3C',
+            'background-color': '#ffffff',
             'border-width': 2,
-            'border-color': '#922B21',
-            'shape': 'rectangle',
-            'width': 30,
-            'height': 6,
-            'font-size': '12px',
-            'color': '#FFFFFF',
+            'border-color': '#C82333',
+            'shape': 'ellipse',
+            'width': 25,
+            'height': 25,
+            'font-size': '14px',
+            'color': '#C82333',
             'font-weight': 'bold',
             'text-outline-width': 0,
             'text-valign': 'center',
             'text-halign': 'center',
-            'text-margin-y': 0
+            'text-margin-y': 0,
+            'z-index': 10
         }
     },
     {
@@ -160,9 +161,6 @@ dlog_cytoscape_stylesheet = [
             'width': 3,
             'line-color': '#778899',
             'curve-style': 'straight',
-            'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#778899',
-            'arrow-scale': 1.5,
             'edge-text-rotation': 'autorotate'
         }
     },
@@ -232,9 +230,6 @@ layout = html.Div([
                                 'taxi-turn-max-distance': 80,
                                 'width': 3,
                                 'line-color': '#778899',
-                                'target-arrow-shape': 'triangle',
-                                'target-arrow-color': '#778899',
-                                'arrow-scale': 1.5,
                                 'edge-text-rotation': 'autorotate'
                             }
                         }
@@ -397,13 +392,11 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                    style={"color": "#666"})
         ]), 0
 
-    if node_type == 'neg_indicator':
-        parent_pred = node_data.get('parent_pred', 'unknown')
+
+    if node_type == 'not':
         return html.Div([
-            html.P("This is a NEGATION indicator.",
-                   style={"fontWeight": "bold"}),
-            html.P(f"It indicates that predicate '{parent_pred}' is negated in the rule.",
-                   style={"fontStyle": "italic"}),
+            html.P("This is a NEGATION node.", style={"fontWeight": "bold"}),
+            html.P("It indicates that the connected predicate is negated in the rule.", style={"fontStyle": "italic"}),
             html.P("The predicate must NOT be true for the rule to be satisfied.")
         ]), 0
 
@@ -1019,9 +1012,6 @@ def update_graph_highlighting(highlighted_path):
                 'taxi-turn-max-distance': 80,
                 'width': 3,
                 'line-color': '#778899',
-                'target-arrow-shape': 'triangle',
-                'target-arrow-color': '#778899',
-                'arrow-scale': 1.5,
                 'edge-text-rotation': 'autorotate'
             }
         }
@@ -1037,8 +1027,6 @@ def update_graph_highlighting(highlighted_path):
                 'style': {
                     'width': 5,
                     'line-color': '#FF0019',
-                    'target-arrow-color': "#FF0019",
-                    'source-arrow-color': '#FF0019'
                 }
             })
         else:
@@ -1248,19 +1236,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 
         return created_nodes[node_key]['node_id']
 
-    def add_negation_indicator(target_node_id, pred_name):
-        """Add negation indicator for negated predicates"""
-        neg_id = f"neg_indicator_{target_node_id}"
-        elements.append({
-            'data': {
-                'id': neg_id,
-                'label': 'NOT',
-                'type': 'neg_indicator',
-                'parent_pred': pred_name,
-                'parent_node_id': target_node_id
-            },
-            'classes': 'neg-indicator'
-        })
 
     def add_and_node(head_node_id, rule_index):
         """Create AND node for multiple body predicates"""
@@ -1268,7 +1243,7 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
         elements.append({
             'data': {
                 'id': and_id,
-                'label': 'and',
+                'label': 'AND',
                 'type': 'and',
                 'parent_node_id': head_node_id
             },
@@ -1282,13 +1257,27 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
         elements.append({
             'data': {
                 'id': or_id,
-                'label': 'or',
+                'label': 'OR',
                 'type': 'or',
                 'parent_node_id': head_node_id
             },
             'classes': 'or-node'
         })
         return or_id
+
+    def add_not_node(parent_node_id, idx):
+        """Create NOT node for negation, works like AND/OR nodes"""
+        not_id = f"not_{idx}_{parent_node_id}"
+        elements.append({
+            'data': {
+                'id': not_id,
+                'label': 'NOT',
+                'type': 'not',
+                'parent_node_id': parent_node_id
+            },
+            'classes': 'not-node'
+        })
+        return not_id
 
     def add_edge(source_id, target_id, and_node_id=None, edge_weight=None):
         """Add edge between nodes with optional ordering weight"""
@@ -1368,14 +1357,22 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
 
             # Connect AND node to each body predicate (negated ones will be rightmost)
             for i, (body_node_id, sign, pred_name) in enumerate(regular_body_preds):
-                # Give higher weight to negated predicates to push them right
-                weight = i + (10 if sign == 'neg' else 0)
-                add_edge(and_node_id, body_node_id, edge_weight=weight)
+                if sign == 'neg':
+                    not_node_id = add_not_node(and_node_id, i)
+                    add_edge(and_node_id, not_node_id, edge_weight=i+10)
+                    add_edge(not_node_id, body_node_id, edge_weight=i+10)
+                else:
+                    add_edge(and_node_id, body_node_id, edge_weight=i)
 
         elif len(regular_body_preds) == 1:
             # Single body predicate - direct edge
             body_node_id, sign, pred_name = regular_body_preds[0]
-            add_edge(parent_node_id, body_node_id)
+            if sign == 'neg':
+                not_node_id = add_not_node(parent_node_id, 0)
+                add_edge(parent_node_id, not_node_id)
+                add_edge(not_node_id, body_node_id)
+            else:
+                add_edge(parent_node_id, body_node_id)
 
     # Process comparison predicates first
     created_comparisons = {}
@@ -1436,17 +1433,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 # Single rule for this predicate - direct connection
                 rule_index, head, body = pred_rules[0]
                 process_rule_body(rule_index, head, body, head_node_id)
-
-    # Add negation indicators for negated predicates
-    for node_id in negated_nodes:
-        # Find the predicate name for this node
-        pred_name = None
-        for node_info in created_nodes.values():
-            if node_info['node_id'] == node_id:
-                pred_name = node_info['pred_name']
-                break
-        if pred_name:
-            add_negation_indicator(node_id, pred_name)
 
     return elements
 
