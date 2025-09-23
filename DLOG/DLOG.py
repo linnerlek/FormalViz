@@ -264,24 +264,6 @@ def generate_ra(pred, pred_dict, db=None, rules=None, specific_args=None):
 
     return ra_tree
 
-    # Set temporary table names
-    set_temp_table_names(ra_tree)
-
-    # Perform semantic checks
-    status = ra_semantic_checks(ra_tree, db)
-    if status != "OK":
-        raise ValueError(f"RA semantic check failed: {status}")
-
-    # Validate that we can generate SQL from the RA tree
-    try:
-        sql_query = generateSQL(ra_tree, db)
-        if not sql_query:
-            raise ValueError("Failed to generate SQL from RA tree")
-    except Exception as e:
-        raise ValueError(f"SQL generation failed: {e}")
-
-    return ra_tree
-
 
 def convert_body_to_ra(body, pred_dict, db):
     """Convert a DLOG body (list of literals) to an RA tree."""

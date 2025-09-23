@@ -1216,7 +1216,11 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
             else:
                 node_class = 'edb-node'
 
-            label = f"{pred_name}({format_predicate_args(pred_args)})"
+            # Make EDB predicate table names upper-case in label
+            if node_type == 'edb':
+                label = f"{pred_name.upper()}({format_predicate_args(pred_args)})"
+            else:
+                label = f"{pred_name}({format_predicate_args(pred_args)})"
 
             elements.append({
                 'data': {

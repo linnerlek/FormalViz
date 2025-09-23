@@ -170,15 +170,14 @@ cytoscape_stylesheet = [
             'text-halign': 'center',
             'width': 200,
             'height': 'label',
-            'font-size': '20px',
+            'font-size': '25px',
             'text-wrap': 'wrap',
             'text-max-width': 180,
             'padding': '20px',
-            'text-margin-y': 10,
             'text-justification': 'center',
             'min-height': 60,
             'background-color': '#6FB1FC',
-            'border-width': 2,
+            'border-width': 3,
             'border-color': '#0066CC',
             'shape': 'round-rectangle',
             'text-margin-y': 5
@@ -187,23 +186,27 @@ cytoscape_stylesheet = [
     {
         'selector': "node[node_type='relation']",
         'style': {
-            'background-color': "#6C9133",
-            'border-width': 2,
-            'border-color': "#314E15",
+            'background-color': "#86B342",
+            'border-width': 3,
+            'border-color': "#476E23",
             'shape': 'round-rectangle',
         }
     },
     {
         'selector': 'edge',
         'style': {
-            'line-color': '#CCCCCC',
-            'width': 4,
+            'line-color': '#778899',
+            'width': 3,
+            'arrow-scale': 2,
+            'curve-style': 'bezier',
+            'source-arrow-shape': 'triangle',
+            'source-arrow-color': '#778899',
         }
     },
     {
         'selector': ':selected',
         'style': {
-            'border-width': 5,
+            'border-width': 3,
             'border-color': "#FF0019",
             'border-style': 'solid',
             'font-weight': 'bold',
@@ -229,18 +232,18 @@ legend = html.Div(
     },
     children=[
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#2ecc40',
-                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#86B342',
+                                             'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #476E23'}),
             html.Span('Relation', style={'verticalAlign': 'middle'})
         ], style={'display': 'flex', 'alignItems': 'center'}),
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#0071CE',
-                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#6FB1FC',
+                                             'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #0066CC'}),
             html.Span('Operator', style={'verticalAlign': 'middle'})
         ], style={'display': 'flex', 'alignItems': 'center'}),
         html.Div([
-            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#CC0000',
-                     'display': 'inline-block', 'borderRadius': '50%', 'marginRight': '8px'}),
+            html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#ffffff',
+                     'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #FF0019'}),
             html.Span('Selected', style={'verticalAlign': 'middle'})
         ], style={'display': 'flex', 'alignItems': 'center'}),
     ]
