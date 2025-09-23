@@ -166,31 +166,46 @@ cytoscape_stylesheet = [
         'selector': 'node',
         'style': {
             'label': 'data(label)',
-            'text-valign': 'bottom',
+            'text-valign': 'center',
             'text-halign': 'center',
-            'font-size': '18px',
+            'width': 200,
+            'height': 'label',
+            'font-size': '20px',
             'text-wrap': 'wrap',
-            'white-space': 'pre',
-            'background-color': '#0071CE',
-            'text-transform': 'none'
+            'text-max-width': 180,
+            'padding': '20px',
+            'text-margin-y': 10,
+            'text-justification': 'center',
+            'min-height': 60,
+            'background-color': '#6FB1FC',
+            'border-width': 2,
+            'border-color': '#0066CC',
+            'shape': 'round-rectangle',
+            'text-margin-y': 5
         }
     },
     {
         'selector': "node[node_type='relation']",
         'style': {
-            'background-color': '#2ecc40',  # green for root data nodes
+            'background-color': "#6C9133",
+            'border-width': 2,
+            'border-color': "#314E15",
+            'shape': 'round-rectangle',
         }
     },
     {
         'selector': 'edge',
         'style': {
             'line-color': '#CCCCCC',
+            'width': 4,
         }
     },
     {
         'selector': ':selected',
         'style': {
-            'background-color': '#CC0000',
+            'border-width': 5,
+            'border-color': "#FF0019",
+            'border-style': 'solid',
             'font-weight': 'bold',
         }
     }

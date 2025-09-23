@@ -868,6 +868,9 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
             var_map = {}
             table_count = 0
 
+            # Track which variables appear in which table/column
+            var_locations = {}
+
             for lit in body:
                 sign, atom = lit
                 if atom[0] == 'regular':
@@ -892,6 +895,11 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
                                 col_ref = f"{table_alias}.{col_names[i]}"
                                 if var_name not in var_map:
                                     var_map[var_name] = col_ref
+                                # Track all locations for this variable
+                                if var_name not in var_locations:
+                                    var_locations[var_name] = []
+                                var_locations[var_name].append(
+                                    (table_alias, col_names[i]))
 
                 elif atom[0] == 'comparison':
                     left_arg, op, right_arg = atom[1], atom[2], atom[3]
@@ -906,21 +914,23 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
             join_conditions = []
             filter_conditions = []
 
+            # Build join conditions for shared variables
+            # For each variable that appears in more than one table, add equality conditions
+            for var_name, locations in var_locations.items():
+                if len(locations) > 1:
+                    # For all pairs of locations, add equality
+                    for i in range(len(locations)):
+                        for j in range(i+1, len(locations)):
+                            left_ref = f"{locations[i][0]}.{locations[i][1]}"
+                            right_ref = f"{locations[j][0]}.{locations[j][1]}"
+                            join_conditions.append(f"{left_ref} = {right_ref}")
+
+            # Add conditions for constants
             for tablename, table_alias, args, sign, col_names in join_tables:
                 if sign == 'pos':
                     for i, arg in enumerate(args):
                         col_ref = f"{table_alias}.{col_names[i]}"
-                        if arg[0] == 'var' and arg[1] != '_':
-                            var_name = arg[1]
-                            if var_map[var_name] != col_ref:
-                                other_ref = var_map[var_name]
-                                if '.' in other_ref and other_ref.split('.')[0] != table_alias:
-                                    join_conditions.append(
-                                        f"{col_ref} = {other_ref}")
-                                else:
-                                    filter_conditions.append(
-                                        f"{col_ref} = {other_ref}")
-                        elif arg[0] in ('num', 'str'):
+                        if arg[0] in ('num', 'str'):
                             filter_conditions.append(
                                 f"{col_ref} = {format_sql_value(arg)}")
 
@@ -932,35 +942,26 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
                     right_arg[1], right_arg[1]) if right_arg[0] == 'var' else format_sql_value(right_arg)
                 filter_conditions.append(f"{left_val} {op} {right_val}")
 
-            # FROM
+            # FROM and JOIN clause
             if not positive_tables:
                 from_clause = ""
             elif len(positive_tables) == 1:
                 tablename, table_alias, _, _ = positive_tables[0]
                 from_clause = f"FROM {tablename} {table_alias}"
             else:
-                from_parts = [
-                    f"FROM {positive_tables[0][0]} {positive_tables[0][1]}"]
-                used_join_conditions = set()
-
+                # Build FROM with JOINs
+                from_clause = f"FROM {positive_tables[0][0]} {positive_tables[0][1]}"
                 for i in range(1, len(positive_tables)):
                     tablename, table_alias, _, _ = positive_tables[i]
-                    table_join_condition = None
-
-                    for join_cond in join_conditions:
-                        if f"{table_alias}." in join_cond and join_cond not in used_join_conditions:
-                            table_join_condition = join_cond
-                            used_join_conditions.add(join_cond)
-                            break
-
-                    if table_join_condition:
-                        from_parts.append(
-                            f"JOIN {tablename} {table_alias} ON {table_join_condition}")
+                    # Find join conditions involving this table
+                    table_join_conds = [
+                        jc for jc in join_conditions if f"{table_alias}." in jc]
+                    if table_join_conds:
+                        # Use all join conditions for this table
+                        on_clause = ' AND '.join(table_join_conds)
+                        from_clause += f" JOIN {tablename} {table_alias} ON {on_clause}"
                     else:
-                        from_parts.append(
-                            f"CROSS JOIN {tablename} {table_alias}")
-
-                from_clause = " ".join(from_parts)
+                        from_clause += f" CROSS JOIN {tablename} {table_alias}"
 
             # Negation
             for tablename, table_alias, args, sign, col_names in join_tables:
@@ -997,7 +998,12 @@ def generate_sql(pred, pred_dict, db=None, rules=None, specific_args=None):
                         select_exprs.append(f"NULL AS {var_name}")
 
             select_clause = f"SELECT {', '.join(select_exprs)}"
-            where_clause = f"WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ""
+            where_clauses = []
+            if join_conditions:
+                where_clauses.extend(join_conditions)
+            if filter_conditions:
+                where_clauses.extend(filter_conditions)
+            where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
             rule_sql = f"{select_clause} {from_clause} {where_clause}".strip()
             rule_sqls.append(rule_sql)
 
