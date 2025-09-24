@@ -379,36 +379,49 @@ def convert_body_to_ra(body, pred_dict, db):
 
     # Handle negative literals using MINUS operation
     if negative_literals:
-        # For negation, we need a simpler approach
-        # For each negative literal, subtract tuples that satisfy it
         for neg_lit in negative_literals:
             _, atom = neg_lit
             pred_name = atom[1]
             args = atom[2]
 
-            # Find shared variables between positive and negative parts
             shared_vars = get_shared_variables_from_args(
                 positive_literals, neg_lit)
-
             if shared_vars:
-                # Create the negative relation tree
+                shared_vars_upper = [var.upper() for var in shared_vars]
+
+                # For multiple positive literals, always project the join to shared_vars before minus
+                pos_side = project_if_needed(ra_tree, shared_vars_upper)
+
+                # Build negative relation tree
                 if pred_name in pred_dict:
                     neg_relation_tree = generate_ra(pred_name, pred_dict, db)
                 else:
                     neg_relation_tree = Node("relation", None, None)
                     neg_relation_tree.set_relation_name(pred_name)
-
-                # Add rename operation for the negative literal
                 neg_relation_tree = add_rename_for_variables(
                     neg_relation_tree, pred_name, args, db, len(positive_literals))
-
-                shared_vars_upper = [var.upper() for var in shared_vars]
-                # Project positive and negative sides only if needed
-                pos_side = project_if_needed(ra_tree, shared_vars_upper)
                 neg_side = project_if_needed(
                     neg_relation_tree, shared_vars_upper)
-                remaining_shared = Node("minus", pos_side, neg_side)
-                ra_tree = Node("join", ra_tree, remaining_shared)
+
+                # Do minus to get shared_vars not in neg_side
+                minus_result = Node("minus", pos_side, neg_side)
+
+                # Determine required output attributes from the head of the rule
+                # Try to get them from the first positive literal (usually the main relation)
+                required_attrs = []
+                if positive_literals:
+                    required_attrs = [arg[1].upper(
+                    ) for arg in positive_literals[0][1][2] if arg[0] == 'var' and arg[1] != '_']
+                orig_vars = collect_variables_from_tree(ra_tree)
+
+                # If minus_result does not have all required output attributes, join back to original ra_tree
+                minus_attrs = collect_variables_from_tree(minus_result)
+                if not set(required_attrs).issubset(set(minus_attrs)):
+                    # Join original ra_tree to minus_result on shared_vars
+                    join_node = Node("join", ra_tree, minus_result)
+                    ra_tree = join_node
+                else:
+                    ra_tree = minus_result
 
     return ra_tree
 
