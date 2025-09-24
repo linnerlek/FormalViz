@@ -206,7 +206,7 @@ layout = html.Div([
                 ]),
                 dcc.ConfirmDialog(id='datalog-error', message='Parse Error!'),
             ]),
-            html.Div(className="datalog-tree-table-container", children=[
+            html.Div(className="datalog-tree-table-container", style={"position": "relative"}, children=[
                 cyto.Cytoscape(
                     id='datalog-graph',
                     layout={
@@ -223,22 +223,43 @@ layout = html.Div([
                         {
                             'selector': 'edge',
                             'style': {
-                                'curve-style': 'taxi',
-                                'taxi-direction': 'downward',
-                                'taxi-turn': 45,
-                                'taxi-turn-min-distance': 20,
-                                'taxi-turn-max-distance': 80,
+                                'curve-style': 'bezier',
                                 'width': 3,
                                 'line-color': '#778899',
                                 'edge-text-rotation': 'autorotate'
+                            }
+                        },
+                        {
+                            'selector': 'node',
+                            'style': {
+                                'draggable': True
                             }
                         }
                     ],
                     userZoomingEnabled=True,
                     userPanningEnabled=True,
-                    autoungrabify=True,
+                    autoungrabify=False,
                     minZoom=0.5,
-                    maxZoom=2.0
+                    maxZoom=2.0,
+                    style={'width': '100%', 'height': '100%'},
+                ),
+                html.Div(
+                    id="datalog-fullscreen-checklist-overlay",
+                    style={
+                        "position": "absolute",
+                        "bottom": "10px",
+                        "left": "10px",
+                        "zIndex": 10000
+                    },
+                    children=[
+                        dcc.Checklist(
+                            id="datalog-fullscreen-checklist",
+                            options=[
+                                {'label': 'Fullscreen', 'value': 'fullscreen'}],
+                            value=[],
+                            style={}
+                        ),
+                    ]
                 ),
                 html.Div(id="datalog-tree-table-divider", className="divider"),
                 html.Div(
@@ -392,11 +413,11 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                    style={"color": "#666"})
         ]), 0
 
-
     if node_type == 'not':
         return html.Div([
             html.P("This is a NEGATION node.", style={"fontWeight": "bold"}),
-            html.P("It indicates that the connected predicate is negated in the rule.", style={"fontStyle": "italic"}),
+            html.P("It indicates that the connected predicate is negated in the rule.", style={
+                   "fontStyle": "italic"}),
             html.P("The predicate must NOT be true for the rule to be satisfied.")
         ]), 0
 
@@ -632,6 +653,13 @@ clientside_callback(
                     const negNode = cy.$('#' + element.data.id);
                     
                     if (parentNode.length > 0 && negNode.length > 0) {
+                        // Add window resize event listener to always center the graph
+                        if (!window._datalogGraphResizeListenerAdded) {
+                            window.addEventListener('resize', function() {
+                                window.centerDatalogGraph();
+                            });
+                            window._datalogGraphResizeListenerAdded = true;
+                        }
                         const parentPos = parentNode.position();
                         negNode.position({
                             x: parentPos.x,
@@ -706,6 +734,39 @@ clientside_callback(
     """,
     Output('datalog-graph', 'id'),
     [Input('datalog-graph', 'elements')],
+    prevent_initial_call=True
+)
+
+
+@callback(
+    Output('datalog-graph', 'style'),
+    [Input('datalog-fullscreen-checklist', 'value')],
+    prevent_initial_call=False
+)
+def toggle_datalog_fullscreen(fullscreen_value):
+    import dash
+    ctx = dash.callback_context
+    # Center graph when entering fullscreen, matching RAViz
+    if 'fullscreen' in fullscreen_value:
+        # Center the graph using JS after style update
+        return {'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh', 'zIndex': 9999, 'background': 'white'}
+    else:
+        # Restore shared layout with table-and-pagination
+        return {'width': '100%', 'height': '100%', 'flex': '3', 'minWidth': '0'}
+
+
+clientside_callback(
+    '''
+    function(fullscreen_value) {
+        // Center the graph quickly and smoothly, matching RAViz
+        if (window.centerDatalogGraph) {
+            setTimeout(function() { window.centerDatalogGraph(); }, 50);
+        }
+        return window.dash_clientside.no_update;
+    }
+    ''',
+    Output('datalog-graph', 'data-fullscreen-center'),
+    [Input('datalog-fullscreen-checklist', 'value')],
     prevent_initial_call=True
 )
 
@@ -994,6 +1055,7 @@ def update_highlighted_path(node_data, parsed_data, graph_elements):
     return path_nodes + path_edges
 
 
+
 @callback(
     Output('datalog-graph', 'stylesheet'),
     [Input("datalog-highlighted-path", "data")],
@@ -1005,11 +1067,7 @@ def update_graph_highlighting(highlighted_path):
         {
             'selector': 'edge',
             'style': {
-                'curve-style': 'taxi',
-                'taxi-direction': 'downward',
-                'taxi-turn': 45,
-                'taxi-turn-min-distance': 20,
-                'taxi-turn-max-distance': 80,
+                'curve-style': 'bezier',
                 'width': 3,
                 'line-color': '#778899',
                 'edge-text-rotation': 'autorotate'
@@ -1235,7 +1293,6 @@ def build_datalog_graph(pred_dict, dgraph, rules=None):
                 head_nodes[pred_name] = node_id
 
         return created_nodes[node_key]['node_id']
-
 
     def add_and_node(head_node_id, rule_index):
         """Create AND node for multiple body predicates"""

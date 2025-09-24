@@ -270,8 +270,7 @@ layout = html.Div([
             dcc.Store(id="next-clicks", data=0),
             dcc.Store(id="row-count", data=0),
 
-
-            html.Div(className="tree-table-container", children=[
+            html.Div(className="tree-table-container", style={"position": "relative"}, children=[
                 cyto.Cytoscape(
                     id='cytoscape-tree',
                     layout={
@@ -284,7 +283,25 @@ layout = html.Div([
                     },
                     elements=[],
                     stylesheet=cytoscape_stylesheet,
-                    style={'width': '100%', 'height': '100%'}
+                    style={'width': '100%', 'height': '100%'},
+                ),
+                html.Div(
+                    id="fullscreen-checklist-overlay",
+                    style={
+                        "position": "absolute",
+                        "bottom": "10px",
+                        "left": "10px",
+                        "zIndex": 10000
+                    },
+                    children=[
+                        dcc.Checklist(
+                            id="fullscreen-checklist",
+                            options=[
+                                {'label': 'Fullscreen', 'value': 'fullscreen'}],
+                            value=[],
+                            style={}
+                        ),
+                    ]
                 ),
                 html.Div(id="tree-table-divider", className="divider"),
                 html.Div(
@@ -342,6 +359,19 @@ layout = html.Div([
     ]),
     html.Div(id='error-div')
 ])
+# ------------------ Fullscreen Callback ------------------
+
+
+@callback(
+    Output('cytoscape-tree', 'style'),
+    [Input('fullscreen-checklist', 'value')],
+    prevent_initial_call=False
+)
+def toggle_fullscreen(fullscreen_value):
+    if 'fullscreen' in fullscreen_value:
+        return {'position': 'fixed', 'top': 0, 'left': 0, 'width': '100vw', 'height': '100vh', 'zIndex': 9999, 'background': 'white'}
+    else:
+        return {'width': '100%', 'height': '100%'}
 
 
 # ------------------ Callbacks ------------------
@@ -442,7 +472,7 @@ def update_db_or_insert_query(selected_db, query_block_clicks, modal_children):
     trigger = ctx.triggered[0]["prop_id"]
 
     if trigger == "db-dropdown.value":
-        header = f"Selected Database: {selected_db}" if selected_db else "No Database Selected"
+        header = f"Database: {selected_db}" if selected_db else "No Database Selected"
         return header, ""
 
     if "query-block" in trigger:
