@@ -167,7 +167,9 @@ dlog_cytoscape_stylesheet = [
     {
         'selector': ':selected',
         'style': {
-            'font-weight': 'bold',
+            'border-width': 5,
+            'border-color': "#FF0019",
+            'border-style': 'solid',
         }
     }
 ]
@@ -300,6 +302,12 @@ layout = html.Div([
                                     html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#86B342',
                                              'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #476E23'}),
                                     html.Span('EDB Predicate', style={
+                                              'verticalAlign': 'middle'})
+                                ], style={'display': 'flex', 'alignItems': 'center'}),
+                                html.Div([
+                                    html.Div(style={'width': '22px', 'height': '22px', 'backgroundColor': '#ffffff',
+                                                    'display': 'inline-block', 'borderRadius': '8px', 'marginRight': '8px', 'border': '2px solid #FF0019'}),
+                                    html.Span('Selected', style={
                                               'verticalAlign': 'middle'})
                                 ], style={'display': 'flex', 'alignItems': 'center'}),
                             ]
@@ -1034,70 +1042,70 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
     return list(path_nodes), list(path_edges)
 
 
-@callback(
-    Output("datalog-highlighted-path", "data"),
-    [Input('datalog-graph', 'tapNodeData')],
-    [State('datalog-parsed-data', 'data'),
-     State('datalog-graph', 'elements')],
-    prevent_initial_call=True
-)
-def update_highlighted_path(node_data, parsed_data, graph_elements):
-    if not node_data or not parsed_data:
-        return []
+# @callback(
+#     Output("datalog-highlighted-path", "data"),
+#     [Input('datalog-graph', 'tapNodeData')],
+#     [State('datalog-parsed-data', 'data'),
+#      State('datalog-graph', 'elements')],
+#     prevent_initial_call=True
+# )
+# def update_highlighted_path(node_data, parsed_data, graph_elements):
+#     if not node_data or not parsed_data:
+#         return []
 
-    node_id = node_data['id']
-    pred_dict = parsed_data['pred_dict']
-    dgraph = parsed_data['dgraph']
+#     node_id = node_data['id']
+#     pred_dict = parsed_data['pred_dict']
+#     dgraph = parsed_data['dgraph']
 
-    path_nodes, path_edges = find_path_to_facts(
-        node_id, dgraph, pred_dict, graph_elements)
+#     path_nodes, path_edges = find_path_to_facts(
+#         node_id, dgraph, pred_dict, graph_elements)
 
-    return path_nodes + path_edges
+#     return path_nodes + path_edges
 
 
 
-@callback(
-    Output('datalog-graph', 'stylesheet'),
-    [Input("datalog-highlighted-path", "data")],
-    prevent_initial_call=True
-)
-def update_graph_highlighting(highlighted_path):
-    # Base stylesheet
-    base_stylesheet = dlog_cytoscape_stylesheet + [
-        {
-            'selector': 'edge',
-            'style': {
-                'curve-style': 'bezier',
-                'width': 3,
-                'line-color': '#778899',
-                'edge-text-rotation': 'autorotate'
-            }
-        }
-    ]
+# @callback(
+#     Output('datalog-graph', 'stylesheet'),
+#     [Input("datalog-highlighted-path", "data")],
+#     prevent_initial_call=True
+# )
+# def update_graph_highlighting(highlighted_path):
+#     # Base stylesheet
+#     base_stylesheet = dlog_cytoscape_stylesheet + [
+#         {
+#             'selector': 'edge',
+#             'style': {
+#                 'curve-style': 'bezier',
+#                 'width': 3,
+#                 'line-color': '#778899',
+#                 'edge-text-rotation': 'autorotate'
+#             }
+#         }
+#     ]
 
-    if not highlighted_path:
-        return base_stylesheet
+#     if not highlighted_path:
+#         return base_stylesheet
 
-    for element_id in highlighted_path:
-        if element_id.startswith('edge_'):
-            base_stylesheet.append({
-                'selector': f'[id = "{element_id}"]',
-                'style': {
-                    'width': 5,
-                    'line-color': '#FF0019',
-                }
-            })
-        else:
-            base_stylesheet.append({
-                'selector': f'[id = "{element_id}"]',
-                'style': {
-                    'border-width': 5,
-                    'border-color': "#FF0019",
-                    'border-style': 'solid',
-                }
-            })
+#     for element_id in highlighted_path:
+#         if element_id.startswith('edge_'):
+#             base_stylesheet.append({
+#                 'selector': f'[id = "{element_id}"]',
+#                 'style': {
+#                     'width': 5,
+#                     'line-color': '#FF0019',
+#                 }
+#             })
+#         else:
+#             base_stylesheet.append({
+#                 'selector': f'[id = "{element_id}"]',
+#                 'style': {
+#                     'border-width': 5,
+#                     'border-color': "#FF0019",
+#                     'border-style': 'solid',
+#                 }
+#             })
 
-    return base_stylesheet
+#     return base_stylesheet
 
 
 def parse_datalog_query(query, db_path):
