@@ -170,7 +170,7 @@ cytoscape_stylesheet = [
             'text-halign': 'center',
             'width': 200,
             'height': 'label',
-            'font-size': '25px',
+            'font-size': '40px',
             'text-wrap': 'wrap',
             'text-max-width': 180,
             'padding': '20px',
@@ -276,10 +276,10 @@ layout = html.Div([
                     layout={
                         'name': 'dagre',
                         'rankSep': 120,   # vertical separation between ranks
-                        'nodeSep': 200,   # horizontal separation between nodes
-                        'edgeSep': 50,    # separation between edges
+                        'nodeSep': 170,   # horizontal separation between nodes
+                        'edgeSep': 30,    # separation between edges
                         'rankDir': 'TB',  # top-to-bottom
-                        'padding': 50
+                        'padding': 30
                     },
                     elements=[],
                     stylesheet=cytoscape_stylesheet,

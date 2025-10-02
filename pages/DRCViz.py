@@ -9,52 +9,35 @@ from dash import html
 #     order=4
 # )
 
-# Temporary static tree for the DRC query
 elements = [
-    # Root node: D
-    # EXISTS Z
-    {'data': {'id': 'existsZ', 'label': 'EXISTS Z'}},
-    # AND node for MOVIES(Z, D) AND NOT(...)
+    # Root node: A
+    # AND node for ACTORS(A) and NOT(...)
     {'data': {'id': 'AND1', 'label': 'AND'}, 'classes': 'AND-node'},
-    {'data': {'source': 'existsZ', 'target': 'AND1'}},
-    # MOVIES(Z, D) (base relation)
-    {'data': {'id': 'MOVIESZD',
-              'label': 'MOVIES(Z, D)'}, 'classes': 'relation-node'},
-    {'data': {'source': 'AND1', 'target': 'MOVIESZD'}},
-    # NOT(...)
-    {'data': {'id': 'not1', 'label': 'NOT'}, 'classes': 'NOT-node'},
-    {'data': {'source': 'AND1', 'target': 'not1'}},
-    # EXISTS A,X,Y
-    {'data': {'id': 'existsAXY', 'label': 'EXISTS A, X, Y'}},
-    {'data': {'source': 'not1', 'target': 'existsAXY'}},
-    # AND node for MOVIES(X, D) AND ACTORS(Y, A) AND NOT(...)
+    {'data': {'target': 'AND1'}},
+    # ACTORS(A)
+    {'data': {'id': 'actorsA',
+              'label': 'ACTORS(A)'}, 'classes': 'relation-node'},
+    {'data': {'source': 'AND1', 'target': 'actorsA'}},
+    # NOT node for (exists M)(ACTS(M,A) and not MOVIES(M,'Kurosawa'))
+    {'data': {'id': 'NOT1', 'label': 'NOT'}, 'classes': 'NOT-node'},
+    {'data': {'source': 'AND1', 'target': 'NOT1'}},
+    # EXISTS M
+    {'data': {'id': 'existsM', 'label': 'EXISTS M'}},
+    {'data': {'source': 'NOT1', 'target': 'existsM'}},
+    # AND node for ACTS(M,A) and NOT(MOVIES(M,'Kurosawa'))
     {'data': {'id': 'AND2', 'label': 'AND'}, 'classes': 'AND-node'},
-    {'data': {'source': 'existsAXY', 'target': 'AND2'}},
-    # MOVIES(X, D) (base relation)
-    {'data': {'id': 'MOVIESXD',
-              'label': 'MOVIES(X, D)'}, 'classes': 'relation-node'},
-    {'data': {'source': 'AND2', 'target': 'MOVIESXD'}},
-    # ACTORS(Y, A) (base relation)
-    {'data': {'id': 'ACTORSYA',
-              'label': 'ACTORS(Y, A)'}, 'classes': 'relation-node'},
-    {'data': {'source': 'AND2', 'target': 'ACTORSYA'}},
-    # NOT(...)
-    {'data': {'id': 'not2', 'label': 'NOT'}, 'classes': 'NOT-node'},
-    {'data': {'source': 'AND2', 'target': 'not2'}},
-    # EXISTS T
-    {'data': {'id': 'existsT', 'label': 'EXISTS T'}},
-    {'data': {'source': 'not2', 'target': 'existsT'}},
-    # AND node for ACTORS(T, A) AND MOVIES(T, D)
-    {'data': {'id': 'AND3', 'label': 'AND'}, 'classes': 'AND-node'},
-    {'data': {'source': 'existsT', 'target': 'AND3'}},
-    # ACTORS(T, A) (base relation)
-    {'data': {'id': 'ACTORSTA',
-              'label': 'ACTORS(T, A)'}, 'classes': 'relation-node'},
-    {'data': {'source': 'AND3', 'target': 'ACTORSTA'}},
-    # MOVIES(T, D) (base relation)
-    {'data': {'id': 'MOVIESTD',
-              'label': 'MOVIES(T, D)'}, 'classes': 'relation-node'},
-    {'data': {'source': 'AND3', 'target': 'MOVIESTD'}},
+    {'data': {'source': 'existsM', 'target': 'AND2'}},
+    # ACTS(M,A)
+    {'data': {'id': 'actsMA',
+              'label': "ACTS(M, A)"}, 'classes': 'relation-node'},
+    {'data': {'source': 'AND2', 'target': 'actsMA'}},
+    # NOT node for MOVIES(M,'Kurosawa')
+    {'data': {'id': 'NOT2', 'label': 'NOT'}, 'classes': 'NOT-node'},
+    {'data': {'source': 'AND2', 'target': 'NOT2'}},
+    # MOVIES(M,'Kurosawa')
+    {'data': {'id': 'moviesMK',
+              'label': "MOVIES(M, 'Kurosawa')"}, 'classes': 'relation-node'},
+    {'data': {'source': 'NOT2', 'target': 'moviesMK'}},
 ]
 
 cytoscape_stylesheet = [
@@ -66,7 +49,7 @@ cytoscape_stylesheet = [
             'text-halign': 'center',
             'width': 200,
             'height': 'label',
-            'font-size': '25px',
+            'font-size': '30px',
             'text-wrap': 'wrap',
             'text-max-width': 180,
             'padding': '20px',
