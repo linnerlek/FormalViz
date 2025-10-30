@@ -217,9 +217,10 @@ layout = html.Div([
                     layout={
                         'name': 'dagre',
                         'rankDir': 'TB',
-                        'nodeSep': 60,
+                        'rankSep': 120,
+                        'nodeSep': 170,
                         'edgeSep': 30,
-                        'rankSep': 100,
+                        'padding': 30,
                         'roots': '[id = "node_answer"]',
                         'animate': False
                     },
@@ -244,7 +245,7 @@ layout = html.Div([
                     userZoomingEnabled=True,
                     userPanningEnabled=True,
                     autoungrabify=False,
-                    minZoom=0.5,
+                    minZoom=0.3,
                     maxZoom=2.0,
                     style={'width': '100%', 'height': '100%'},
                 ),
@@ -358,13 +359,15 @@ layout = html.Div([
             html.Div(id="datalog-queries-body", className="markdown-content")
         ])
     ]),
-    html.Div(id='datalog-error-div')
+    html.Div(id='datalog-error-div'),
+    dcc.Store(id='current-ra-query'),
 ])
 
 
 @callback(
     [Output('datalog-results-panel', 'children'),
-     Output('datalog-row-count', 'data')],
+     Output('datalog-row-count', 'data'),
+     Output('current-ra-query', 'data')],
     [Input('datalog-graph', 'tapNodeData'),
      Input('datalog-current-page', 'data'),
      Input('datalog-reset-tap-data', 'data'),
@@ -382,10 +385,10 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
     # Check if this was triggered by a reset/submit action
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     if trigger_id in ['datalog-reset-tap-data', 'datalog-submit']:
-        return "Click a node to see data.", 0
+        return "Click a node to see data.", 0, ""
 
     if not node_data or not parsed_data or not db_file:
-        return "Click a node to see data.", 0
+        return "Click a node to see data.", 0, ""
 
     node_id = node_data['id']
     pred_name = node_data.get('predicate_name', '')
@@ -413,7 +416,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
             html.P("This is an AND node.", style={"fontWeight": "bold"}),
             html.P("It represents that ALL connected predicates must be satisfied simultaneously for the rule to be true.",
                    style={"fontStyle": "italic"})
-        ]), 0
+        ]), 0, ""
 
     if node_type == 'or':
         return html.Div([
@@ -422,7 +425,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                    style={"fontStyle": "italic"}),
             html.P("Multiple rules with the same head predicate create different ways to derive the same result.",
                    style={"color": "#666"})
-        ]), 0
+        ]), 0, ""
 
     if node_type == 'not':
         return html.Div([
@@ -430,7 +433,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
             html.P("It indicates that the connected predicate is negated in the rule.", style={
                    "fontStyle": "italic"}),
             html.P("The predicate must NOT be true for the rule to be satisfied.")
-        ]), 0
+        ]), 0, ""
 
     if node_type == 'comparison' or pred_name.startswith('comp_') or re.match(r'^[^ ]+ [<>=!]', pred_name):
         return html.Div([
@@ -442,7 +445,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                    "fontFamily": "monospace", "background": "#f5f5f5", "padding": "5px"}),
             html.P("This node doesn't contain data directly - it applies the condition to tuples from connected predicates.",
                    style={"color": "#666"})
-        ]), 0
+        ]), 0, ""
 
     if is_negated:
         return html.Div([
@@ -455,7 +458,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                    style={"fontStyle": "italic", "color": "#666"}),
             html.P("Therefore, no data or SQL query is displayed for negated predicates.",
                    style={"fontWeight": "bold", "color": "#E74C3C"})
-        ]), 0
+        ]), 0, ""
 
     try:
         db_path = os.path.join(DB_FOLDER, db_file)
@@ -501,7 +504,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                     html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
                                 n_clicks=0, className="button",
                                 style={"margin": "0 10px 10px 0", "fontSize": "12px"}),
-                    html.Button("Show RA Query", id={'type': 'ra-toggle', 'index': node_id},
+                    html.Button("Open RA Viz", id="ra-open-btn",
                                 n_clicks=0, className="button",
                                 style={"margin": "0 0 10px 0", "fontSize": "12px"}),
                     html.Div(id={'type': 'sql-container', 'index': node_id},
@@ -517,24 +520,10 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                             "white-space": "pre-wrap",
                             "margin": "0 0 15px 0"
                         })
-                    ]),
-                    html.Div(id={'type': 'ra-container', 'index': node_id},
-                             style={"display": "none"}, children=[
-                        html.H4("Generated RA Expression:", style={
-                                "margin": "10px 0 10px 0"}),
-                        html.Pre(ra_tree_to_string_with_semicolon(ra), style={
-                            "background": "#f0f8ff",
-                            "padding": "10px",
-                            "border": "1px solid #0066cc",
-                            "border-radius": "4px",
-                            "font-size": "12px",
-                            "white-space": "pre-wrap",
-                            "margin": "0 0 15px 0"
-                        })
                     ])
                 ]),
                 html.P("No data found for this node.")
-            ]), 0
+            ]), 0, ra_tree_to_string_with_semicolon(ra)
 
         rows_per_page = 8
         total_rows = len(rows)
@@ -553,7 +542,7 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                 html.Button("Show SQL Query", id={'type': 'sql-toggle', 'index': node_id},
                             n_clicks=0, className="button",
                             style={"margin": "0 10px 10px 0", "fontSize": "12px"}),
-                html.Button("Show RA Query", id={'type': 'ra-toggle', 'index': node_id},
+                html.Button("Open RA Viz", id="ra-open-btn",
                             n_clicks=0, className="button",
                             style={"margin": "0 0 10px 0", "fontSize": "12px"}),
                 html.Div(id={'type': 'sql-container', 'index': node_id},
@@ -569,20 +558,6 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                         "white-space": "pre-wrap",
                         "margin": "0 0 15px 0"
                     })
-                ]),
-                html.Div(id={'type': 'ra-container', 'index': node_id},
-                         style={"display": "none"}, children=[
-                    html.H4("Generated RA Expression:", style={
-                            "margin": "10px 0 10px 0"}),
-                    html.Pre(ra_tree_to_string_with_semicolon(ra), style={
-                        "background": "#f0f8ff",
-                        "padding": "10px",
-                        "border": "1px solid #0066cc",
-                        "border-radius": "4px",
-                        "font-size": "12px",
-                        "white-space": "pre-wrap",
-                        "margin": "0 0 15px 0"
-                    })
                 ])
             ]),
             html.P(f"Number of tuples: {total_rows}", className="tuple-count"),
@@ -593,10 +568,10 @@ def show_node_data(node_data, current_page, reset_counter, submit_clicks, parsed
                     html.Tbody(table_body)
                 ]
             )
-        ]), total_rows
+        ]), total_rows, ra_tree_to_string_with_semicolon(ra)
 
     except Exception as e:
-        return html.Div([html.P(f"Error: {str(e)}")]), 0
+        return html.Div([html.P(f"Error: {str(e)}")]), 0, ""
 
 
 @callback(
@@ -1064,7 +1039,6 @@ def find_path_to_facts(start_node, dgraph, pred_dict, graph_elements):
 #         node_id, dgraph, pred_dict, graph_elements)
 
 #     return path_nodes + path_edges
-
 
 
 # @callback(
@@ -1645,6 +1619,24 @@ def toggle_ra_query(n_clicks_list, current_styles):
             new_button_texts.append("Show RA Query")
 
     return new_styles, new_button_texts
+
+
+clientside_callback(
+    """
+    function(n_clicks, ra_query, db) {
+        if (n_clicks && ra_query && db) {
+            const url = '/raviz?db=' + encodeURIComponent(db) + '&query=' + encodeURIComponent(ra_query);
+            window.open(url, '_blank');
+        }
+        return 0;
+    }
+    """,
+    Output('ra-open-btn', 'n_clicks'),
+    Input('ra-open-btn', 'n_clicks'),
+    State('current-ra-query', 'data'),
+    State('datalog-db-dropdown', 'value'),
+    prevent_initial_call=True
+)
 
 
 # Clear node selection when submit or reset is clicked

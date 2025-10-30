@@ -7,6 +7,8 @@ import dash
 from dash import dcc, html, callback, clientside_callback
 from dash.dependencies import Input, Output, State, ALL
 import dash_cytoscape as cyto
+from urllib import parse
+import traceback
 
 cyto.load_extra_layouts()
 
@@ -248,6 +250,8 @@ legend = html.Div(
 
 layout = html.Div([
     html.Div(id='page-content'),
+    dcc.Location(id='url', refresh=False),
+    dcc.Store(id='initial-load', data=False),
     dcc.Store(id='code-click', data=None),
     dcc.Store(id="reset-tap-data", data=0),
     html.Div(id="app-container", children=[
@@ -456,24 +460,28 @@ def toggle_query_modal(open_clicks, close_clicks, selected_db):
 
 
 @callback(
-    [Output("db-name-header", "children"),
-     Output("query-input", "value")],
-    [Input("db-dropdown", "value"),
-     Input({"type": "query-block", "index": ALL}, "n_clicks")],
+    Output("db-name-header", "children"),
+    [Input("db-dropdown", "value")],
+    prevent_initial_call=True,
+)
+def update_db_header(selected_db):
+    header = f"Database: {selected_db}" if selected_db else "No Database Selected"
+    return header
+
+
+@callback(
+    Output("query-input", "value"),
+    [Input({"type": "query-block", "index": ALL}, "n_clicks")],
     [State("query-modal-body", "children")],
     prevent_initial_call=True,
 )
-def update_db_or_insert_query(selected_db, query_block_clicks, modal_children):
+def insert_query(query_block_clicks, modal_children):
     ctx = dash.callback_context
 
     if not ctx.triggered:
-        return dash.no_update, dash.no_update
+        return dash.no_update
 
     trigger = ctx.triggered[0]["prop_id"]
-
-    if trigger == "db-dropdown.value":
-        header = f"Database: {selected_db}" if selected_db else "No Database Selected"
-        return header, ""
 
     if "query-block" in trigger:
         triggered_id = eval(trigger.split(".")[0])
@@ -486,9 +494,9 @@ def update_db_or_insert_query(selected_db, query_block_clicks, modal_children):
                 if isinstance(element, dict) and element["type"] == "Pre":
                     if "id" in element["props"] and element["props"]["id"]["type"] == "query-block" and element["props"]["id"]["index"] == triggered_index:
                         query_text = element["props"]["children"]
-                        return dash.no_update, query_text
+                        return query_text
 
-    return dash.no_update, dash.no_update
+    return dash.no_update
 
 
 @callback(
@@ -527,6 +535,29 @@ def display_schema_info(selected_db):
 
 
 @callback(
+    [Output('db-dropdown', 'value'),
+     Output('query-input', 'value', allow_duplicate=True),
+     Output('initial-load', 'data')],
+    [Input('url', 'pathname')],
+    [State('url', 'search'),
+     State('initial-load', 'data')],
+    prevent_initial_call=True
+)
+def load_from_url(pathname, search, loaded):
+    if loaded:
+        return dash.no_update, dash.no_update, True
+
+    if pathname == '/raviz' and search:
+        params = dict(parse.parse_qsl(search.lstrip('?')))
+        db = params.get('db')
+        query = params.get('query')
+        if db and query:
+            return db, query, True
+
+    return dash.no_update, dash.no_update, True
+
+
+@callback(
     [Output('cytoscape-tree', 'elements', allow_duplicate=True),
      Output('cytoscape-tree', 'selectedNodeData', allow_duplicate=True),
      Output('tree-store', 'data', allow_duplicate=True),
@@ -538,17 +569,21 @@ def display_schema_info(selected_db):
      Output('current-page', 'data', allow_duplicate=True),
      Output('reset-tap-data', 'data', allow_duplicate=True)],
     [Input('submit-btn', 'n_clicks'),
-     Input('db-dropdown', 'value')],
+     Input('db-dropdown', 'value'),
+     Input('initial-load', 'data')],
     [State('query-input', 'value'),
      State('reset-tap-data', 'data')],
     prevent_initial_call=True
 )
-def update_tree(n_clicks, selected_db, query, reset_counter):
+def update_tree(n_clicks, selected_db, initial_load, query, reset_counter):
     ctx = dash.callback_context
-    if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('db-dropdown'):
+    if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('db-dropdown') and not initial_load:
         return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
 
-    if n_clicks is None:
+    if ctx.triggered and ctx.triggered[0]['prop_id'] == 'initial-load.data' and initial_load:
+        # Auto-submit when loaded from URL
+        pass
+    elif n_clicks is None and not initial_load:
         return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
 
     if not selected_db:
@@ -557,7 +592,7 @@ def update_tree(n_clicks, selected_db, query, reset_counter):
     if not query:
         return [], None, {}, "", "Please enter a query.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
 
-    if n_clicks and selected_db and query:
+    if (n_clicks or initial_load) and selected_db and query:
         try:
             db_path = os.path.join(DB_FOLDER, selected_db)
             db = SQLite3()
