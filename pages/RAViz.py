@@ -599,19 +599,19 @@ def load_from_url(pathname, search, loaded):
 def update_tree(n_clicks, selected_db, initial_load, query, reset_counter):
     ctx = dash.callback_context
     if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('db-dropdown') and not initial_load:
-        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ""
 
     if ctx.triggered and ctx.triggered[0]['prop_id'] == 'initial-load.data' and initial_load:
         # Auto-submit when loaded from URL
         pass
     elif n_clicks is None and not initial_load:
-        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ""
 
     if not selected_db and ctx.triggered and ctx.triggered[0]['prop_id'] == 'submit-btn.n_clicks':
-        return [], None, {}, "", "Please select a database.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+        return [], None, {}, "", "Please select a database.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, dash.no_update
 
     if not query and ctx.triggered and ctx.triggered[0]['prop_id'] == 'submit-btn.n_clicks':
-        return [], None, {}, "", "Please enter a query.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+        return [], None, {}, "", "Please enter a query.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, dash.no_update
 
     if (n_clicks or initial_load) and selected_db and query:
         try:
@@ -622,17 +622,20 @@ def update_tree(n_clicks, selected_db, initial_load, query, reset_counter):
             json_tree = generate_tree_from_query(query, db, node_counter=[0])
 
             if 'error' in json_tree:
-                return [], None, {}, "", f"Error in query: {json_tree['error']}.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+                return [], None, {}, "", f"Error in query: {json_tree['error']}.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, dash.no_update
 
             elements = json_to_cytoscape_elements(json_tree)
 
             db.close()
-            return elements, None, json_tree, db_path, "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, '?db=' + parse.quote(selected_db) + '&query=' + parse.quote(query)
+            return elements, None, json_tree, db_path, "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, '?' + parse.urlencode({'db': selected_db, 'query': query})
 
         except Exception as e:
             # Add this line to print the full stack trace to the server log
             print(traceback.format_exc())
-            return [], None, {}, "", str(e), {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
+            return [], None, {}, "", str(e), {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, dash.no_update
+
+    # Default return if no condition met
+    return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ""
 
 
 @callback(

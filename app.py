@@ -1,13 +1,15 @@
 import dash
-from dash import Dash, html, dcc, Input, Output
+from dash import Dash, html, dcc, Input, Output, clientside_callback
 import os
 from argparse import ArgumentParser
-
 
 app = Dash(
     __name__,
     use_pages=True
 )
+
+import pages.RAViz
+import pages.DlogViz
 
 
 page_options = [
@@ -25,7 +27,7 @@ app.layout = html.Div([
                 id="page-dropdown",
                 options=page_options,
                 clearable=False,
-                value="/",
+                value=page_options[0]['value'] if page_options else "/",
                 className="dropdown-header"
             )
         )
@@ -36,21 +38,26 @@ app.layout = html.Div([
 
 
 @app.callback(
-    Output("url", "pathname"),
     Output("page-dropdown", "value"),
-    Input("page-dropdown", "value"),
     Input("url", "pathname"),
 )
-def sync_dropdown(drop_value, pathname):
-    ctx = dash.callback_context
+def sync_dropdown(pathname):
+    return pathname
 
-    if ctx.triggered_id == "url":
-        return pathname, pathname
 
-    if ctx.triggered_id == "page-dropdown":
-        return drop_value, drop_value
-
-    return pathname, pathname
+clientside_callback(
+    """
+    function(drop_value) {
+        if (drop_value && drop_value !== window.location.pathname) {
+            window.location.href = drop_value;
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('page-dropdown', 'id'),
+    Input('page-dropdown', 'value'),
+    prevent_initial_call=True
+)
 
 
 if __name__ == "__main__":
