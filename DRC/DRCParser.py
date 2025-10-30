@@ -3,6 +3,12 @@ from DRCLexer import DRCLexer
 
 
 class DRCParser:
+    def __init__(self):
+        self.lexer = DRCLexer()
+        self.lexer.build()
+        self.tokens = self.lexer.tokens
+        self.parser = yacc.yacc(module=self)
+
     precedence = (('right', 'IMPLIES'),
                   ('left', 'AND', 'OR'), ('right', 'NOTOP'),)
 
@@ -117,12 +123,6 @@ class DRCParser:
 
     def p_error(self, p):
         raise TypeError("Syntax error: '%s'" % (p.value if p else 'EOF'))
-
-    def __init__(self):
-        self.lexer = DRCLexer()
-        self.lexer.build()
-        self.tokens = self.lexer.tokens
-        self.parser = yacc.yacc(module=self)
 
     def parse(self, s):
         return self.parser.parse(s, lexer=self.lexer.lexer)
