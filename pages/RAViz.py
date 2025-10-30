@@ -252,6 +252,8 @@ layout = html.Div([
     html.Div(id='page-content'),
     dcc.Location(id='url', refresh=False),
     dcc.Store(id='initial-load', data=False),
+    dcc.Store(id='url-db-store'),
+    dcc.Store(id='url-query-store'),
     dcc.Store(id='code-click', data=None),
     dcc.Store(id="reset-tap-data", data=0),
     html.Div(id="app-container", children=[
@@ -470,7 +472,25 @@ def update_db_header(selected_db):
 
 
 @callback(
-    Output("query-input", "value"),
+    Output('db-dropdown', 'value'),
+    Input('url-db-store', 'data'),
+    prevent_initial_call=True
+)
+def set_db_from_store(db):
+    return db
+
+
+@callback(
+    Output('query-input', 'value'),
+    Input('url-query-store', 'data'),
+    prevent_initial_call=True
+)
+def set_query_from_store(query):
+    return query
+
+
+@callback(
+    Output("query-input", "value", allow_duplicate=True),
     [Input({"type": "query-block", "index": ALL}, "n_clicks")],
     [State("query-modal-body", "children")],
     prevent_initial_call=True,
@@ -535,8 +555,8 @@ def display_schema_info(selected_db):
 
 
 @callback(
-    [Output('db-dropdown', 'value'),
-     Output('query-input', 'value', allow_duplicate=True),
+    [Output('url-db-store', 'data'),
+     Output('url-query-store', 'data'),
      Output('initial-load', 'data')],
     [Input('url', 'pathname')],
     [State('url', 'search'),
@@ -545,7 +565,7 @@ def display_schema_info(selected_db):
 )
 def load_from_url(pathname, search, loaded):
     if loaded:
-        return dash.no_update, dash.no_update, True
+        return None, None, True
 
     if pathname == '/raviz' and search:
         params = dict(parse.parse_qsl(search.lstrip('?')))
@@ -554,7 +574,7 @@ def load_from_url(pathname, search, loaded):
         if db and query:
             return db, query, True
 
-    return dash.no_update, dash.no_update, True
+    return None, None, True
 
 
 @callback(
@@ -567,7 +587,8 @@ def load_from_url(pathname, search, loaded):
      Output('node-table-placeholder', 'children', allow_duplicate=True),
      Output('row-count', 'data', allow_duplicate=True),
      Output('current-page', 'data', allow_duplicate=True),
-     Output('reset-tap-data', 'data', allow_duplicate=True)],
+     Output('reset-tap-data', 'data', allow_duplicate=True),
+     Output('url', 'search', allow_duplicate=True)],
     [Input('submit-btn', 'n_clicks'),
      Input('db-dropdown', 'value'),
      Input('initial-load', 'data')],
@@ -578,19 +599,19 @@ def load_from_url(pathname, search, loaded):
 def update_tree(n_clicks, selected_db, initial_load, query, reset_counter):
     ctx = dash.callback_context
     if ctx.triggered and ctx.triggered[0]['prop_id'].startswith('db-dropdown') and not initial_load:
-        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
+        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
     if ctx.triggered and ctx.triggered[0]['prop_id'] == 'initial-load.data' and initial_load:
         # Auto-submit when loaded from URL
         pass
     elif n_clicks is None and not initial_load:
-        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
+        return [], None, {}, "", "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
-    if not selected_db:
-        return [], None, {}, "", "Please select a database.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
+    if not selected_db and ctx.triggered and ctx.triggered[0]['prop_id'] == 'submit-btn.n_clicks':
+        return [], None, {}, "", "Please select a database.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
-    if not query:
-        return [], None, {}, "", "Please enter a query.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
+    if not query and ctx.triggered and ctx.triggered[0]['prop_id'] == 'submit-btn.n_clicks':
+        return [], None, {}, "", "Please enter a query.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
     if (n_clicks or initial_load) and selected_db and query:
         try:
@@ -601,17 +622,17 @@ def update_tree(n_clicks, selected_db, initial_load, query, reset_counter):
             json_tree = generate_tree_from_query(query, db, node_counter=[0])
 
             if 'error' in json_tree:
-                return [], None, {}, "", f"Error in query: {json_tree['error']}.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
+                return [], None, {}, "", f"Error in query: {json_tree['error']}.", {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
             elements = json_to_cytoscape_elements(json_tree)
 
             db.close()
-            return elements, None, json_tree, db_path, "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1
+            return elements, None, json_tree, db_path, "", {'display': 'none'}, "Click node to see info.", 0, 0, reset_counter + 1, '?db=' + parse.quote(selected_db) + '&query=' + parse.quote(query)
 
         except Exception as e:
             # Add this line to print the full stack trace to the server log
             print(traceback.format_exc())
-            return [], None, {}, "", str(e), {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1
+            return [], None, {}, "", str(e), {'display': 'block'}, "Click node to see info.", 0, 0, reset_counter + 1, ''
 
 
 @callback(
