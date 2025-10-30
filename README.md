@@ -36,12 +36,12 @@ To run the program locally, Python and Sqlite3 needs to be installed on your loc
 
 5. Add your `Sqlite3` database to `databases/`
 
-    - The program comes with sample databases ready for testing. 
+    - The program comes with sample databases ready for testing.
     <br>
 
 6. Write queries and visualize the data
 
-    - Pre-written queries for the sample databases are available in the sidebar (Queries). 
+    - Pre-written queries for the sample databases are available in the sidebar (Examples). 
     - To add your own queries to the docs navigate to `assets/` and add the queries in the relevant file (`RAqueries.md`, `Datalogqueries.md`, or `Lambdaqueries.md`).
 
 ## Contact
