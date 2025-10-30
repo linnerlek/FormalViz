@@ -628,7 +628,7 @@ def node_to_string(node, indent=0):
     prefix = "  " * indent
 
     if node.get_node_type() == "relation":
-        return f"{prefix}{node.get_relation_name()}"
+        return f"{node.get_relation_name()}"
 
     elif node.get_node_type() == "project":
         columns = ', '.join(node.get_columns())
@@ -636,7 +636,7 @@ def node_to_string(node, indent=0):
         if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
             return f"{prefix}project[{columns}](\n{child_str}\n{prefix})"
         else:
-            return f"{prefix}project[{columns}]({child_str})"
+            return f"project[{columns}]({child_str})"
 
     elif node.get_node_type() == "rename":
         columns = ', '.join(node.get_columns())
@@ -644,7 +644,7 @@ def node_to_string(node, indent=0):
         if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
             return f"{prefix}rename[{columns}](\n{child_str}\n{prefix})"
         else:
-            return f"{prefix}rename[{columns}]({child_str})"
+            return f"rename[{columns}]({child_str})"
 
     elif node.get_node_type() == "select":
         conditions = []
@@ -660,14 +660,14 @@ def node_to_string(node, indent=0):
         if node.get_left_child() and node.get_left_child().get_node_type() in ["join", "union", "intersect", "minus", "times"]:
             return f"{prefix}select[{condition_str}](\n{child_str}\n{prefix})"
         else:
-            return f"{prefix}select[{condition_str}]({child_str})"
+            return f"select[{condition_str}]({child_str})"
 
     elif node.get_node_type() in ["join", "union", "intersect", "minus", "times"]:
         left_str = node_to_string(node.get_left_child(), indent + 1)
         right_str = node_to_string(node.get_right_child(), indent + 1)
         op_name = node.get_node_type()
 
-        return f"{prefix}(\n{left_str}\n{prefix} {op_name} \n{right_str}\n{prefix})"
+        return f"{prefix}(\n{left_str}\n{prefix}{op_name}\n{right_str}\n{prefix})"
 
     else:
         # Handle other node types

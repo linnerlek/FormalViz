@@ -8,10 +8,6 @@ app = Dash(
     use_pages=True
 )
 
-import pages.RAViz
-import pages.DlogViz
-
-
 page_options = [
     {"label": p["name"], "value": p["relative_path"]}
     for p in sorted(dash.page_registry.values(), key=lambda x: x["order"])
@@ -69,4 +65,4 @@ if __name__ == "__main__":
     parser.add_argument('--port', default='8050')
     args = parser.parse_args()
 
-    app.run(debug=True, host=args.hostname, port=int(args.port))
+    app.run(debug=False, host=args.hostname, port=int(args.port))
