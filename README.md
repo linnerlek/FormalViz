@@ -9,25 +9,25 @@ To run the program locally, Python and Sqlite3 needs to be installed on your loc
 
 1. Clone the repository 
 
-    ```
+    ```bash
     git clone https://github.com/linnerlek/FormalViz.git 
     ```
 
 2. Navigate to the folder
 
-    ```
+    ```bash
     cd FormalViz
     ```
 
 3. Install the required packages
 
-    ```
+    ```bash
     pip install -r requirements.txt
     ```
 
 4. Run the program
 
-    ```
+    ```bash
     python app.py --hostname <optional-host> --port <optional-port>
     ```
 
